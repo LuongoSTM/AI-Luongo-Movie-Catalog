@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
-import { Film, Wand2, Library, ArrowRight, FileEdit } from 'lucide-react';
+import { Film, Wand2, Library, ArrowRight, FileEdit, BookOpen } from 'lucide-react';
 import MovieRenamer from './MovieRenamer';
+import MetadataEditor from './MetadataEditor';
+import Manual from './Manual';
 
 const CustomLogo = ({ className }: { className?: string }) => (
   <svg viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
@@ -38,10 +40,18 @@ const CustomLogo = ({ className }: { className?: string }) => (
 );
 
 export default function App() {
-  const [view, setView] = useState<'home' | 'renamer' | 'catalog' | 'metadata'>('home');
+  const [view, setView] = useState<'home' | 'renamer' | 'catalog' | 'metadata' | 'manual'>('home');
 
   if (view === 'renamer') {
     return <MovieRenamer onBack={() => setView('home')} />;
+  }
+  
+  if (view === 'metadata') {
+    return <MetadataEditor onBack={() => setView('home')} />;
+  }
+
+  if (view === 'manual') {
+    return <Manual onBack={() => setView('home')} />;
   }
 
   return (
@@ -49,6 +59,17 @@ export default function App() {
       {/* Background effects */}
       <div className="absolute top-0 left-1/4 w-96 h-96 bg-blue-600/20 rounded-full blur-[128px] pointer-events-none" />
       <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-purple-600/20 rounded-full blur-[128px] pointer-events-none" />
+
+      {/* Manual Button (Top Right) */}
+      <div className="absolute top-6 right-6 z-50">
+        <button 
+          onClick={() => setView('manual')}
+          className="flex items-center gap-2 px-4 py-2 bg-neutral-900/80 hover:bg-neutral-800 border border-neutral-700 rounded-full text-sm font-medium text-neutral-300 hover:text-white transition-all shadow-lg"
+        >
+          <BookOpen className="w-4 h-4" />
+          Manuale d'Uso
+        </button>
+      </div>
 
       <motion.div 
         initial={{ opacity: 0, y: 20 }}
@@ -139,23 +160,20 @@ export default function App() {
           <motion.button
             whileHover={{ scale: 1.02, y: -4 }}
             whileTap={{ scale: 0.98 }}
-            onClick={() => {}}
-            className="group relative text-left bg-neutral-900/20 backdrop-blur-xl border border-neutral-800/50 p-8 rounded-3xl transition-all duration-300 overflow-hidden shadow-xl cursor-not-allowed"
+            onClick={() => setView('metadata')}
+            className="group relative text-left bg-neutral-900/40 hover:bg-neutral-800/60 backdrop-blur-xl border border-neutral-800 hover:border-emerald-500/50 p-8 rounded-3xl transition-all duration-300 overflow-hidden shadow-xl"
           >
-            <div className="absolute top-6 right-6 z-20">
-              <span className="bg-emerald-500/10 text-emerald-400 text-xs font-bold px-3 py-1.5 rounded-full border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.2)] uppercase tracking-wider">
-                In Arrivo
-              </span>
-            </div>
-            <div className="relative z-10 opacity-50 group-hover:opacity-70 transition-opacity duration-300">
-              <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 flex items-center justify-center mb-6 border border-emerald-500/20 shadow-[0_0_30px_rgba(16,185,129,0.1)]">
+            <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+            <div className="relative z-10">
+              <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 flex items-center justify-center mb-6 border border-emerald-500/20 group-hover:bg-emerald-500/20 group-hover:border-emerald-500/40 transition-all duration-300 shadow-[0_0_30px_rgba(16,185,129,0.1)]">
                 <FileEdit className="w-8 h-8 text-emerald-400" />
               </div>
               <h2 className="text-2xl font-bold text-white mb-3 flex items-center justify-between">
                 Edit Metadata
+                <ArrowRight className="w-6 h-6 text-neutral-600 group-hover:text-emerald-400 transition-colors transform group-hover:translate-x-2" />
               </h2>
               <p className="text-neutral-400 leading-relaxed text-sm md:text-base">
-                Modifica e scrivi i metadati interni (titolo, anno, cover) direttamente nei tuoi file video per una compatibilità perfetta con i player.
+                Modifica e scrivi i metadati (titolo, anno, cover) per una compatibilità perfetta con i player come Kodi o Plex.
               </p>
             </div>
           </motion.button>
