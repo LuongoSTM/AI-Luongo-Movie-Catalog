@@ -1,876 +1,141 @@
-import { useState, useRef, useEffect } from 'react';
-import { GoogleGenAI, Type } from '@google/genai';
-import { FolderOpen, Sparkles, Download, CheckCircle2, FileVideo, AlertCircle, AlertTriangle, FileText, ChevronDown, ChevronUp } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
-import { jsPDF } from 'jspdf';
+import { useState } from 'react';
+import { motion } from 'motion/react';
+import { Film, Wand2, Library, ArrowRight } from 'lucide-react';
+import MovieRenamer from './MovieRenamer';
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const CustomLogo = ({ className }: { className?: string }) => (
+  <svg viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+    <defs>
+      <linearGradient id="logoGradMain" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stopColor="#60a5fa" />
+        <stop offset="50%" stopColor="#818cf8" />
+        <stop offset="100%" stopColor="#c084fc" />
+      </linearGradient>
+      <linearGradient id="logoGradDark" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stopColor="#1e3a8a" />
+        <stop offset="100%" stopColor="#4c1d95" />
+      </linearGradient>
+      <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+        <feGaussianBlur stdDeviation="4" result="blur" />
+        <feComposite in="SourceGraphic" in2="blur" operator="over" />
+      </filter>
+    </defs>
+    
+    <rect x="10" y="10" width="100" height="100" rx="28" fill="url(#logoGradDark)" opacity="0.6" />
+    <rect x="10" y="10" width="100" height="100" rx="28" stroke="url(#logoGradMain)" strokeWidth="3" />
+    
+    <circle cx="22" cy="30" r="3.5" fill="#0a0a0a" />
+    <circle cx="22" cy="60" r="3.5" fill="#0a0a0a" />
+    <circle cx="22" cy="90" r="3.5" fill="#0a0a0a" />
+    <circle cx="98" cy="30" r="3.5" fill="#0a0a0a" />
+    <circle cx="98" cy="60" r="3.5" fill="#0a0a0a" />
+    <circle cx="98" cy="90" r="3.5" fill="#0a0a0a" />
 
-interface FileData {
-  originalName: string;
-  relativePath: string;
-  relativeDir: string;
-  nameWithoutExt: string;
-  extension: string;
-  isAlreadyCorrect: boolean;
-}
-
-interface AnalyzedFile {
-  originalName: string;
-  relativePath: string;
-  relativeDir: string;
-  cleanTitle: string;
-  year: string;
-  originalTitle?: string;
-  director?: string;
-  actors?: string[];
-  edition?: string;
-  extension: string;
-  proposedName: string;
-  selected: boolean;
-  isAlreadyCorrect: boolean;
-  hasConflict?: boolean;
-}
-
-const VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v'];
-const CORRECT_PATTERN = /^.+ \(\d{4}\)$/;
-const DIRTY_PATTERN = /(1080p|720p|2160p|4k|bluray|bdrip|brrip|dvdrip|web-dl|webrip|x264|h264|hevc|x265|ita|eng|dts|ac3|aac|multisub|remux|xvid|divx)/i;
+    <path d="M42 40 L78 60 L42 80 Z" fill="url(#logoGradMain)" filter="url(#glow)" />
+    
+    <path d="M85 15 Q90 25 100 30 Q90 35 85 45 Q80 35 70 30 Q80 25 85 15 Z" fill="#ffffff" filter="url(#glow)" />
+  </svg>
+);
 
 export default function App() {
-  const [files, setFiles] = useState<FileData[]>([]);
-  const [analyzedFiles, setAnalyzedFiles] = useState<AnalyzedFile[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
-  const [filterType, setFilterType] = useState<'all' | 'to_rename' | 'correct' | 'problematic'>('all');
-  const [scriptTypeToGenerate, setScriptTypeToGenerate] = useState<'windows' | 'mac' | null>(null);
-  const [currentTime, setCurrentTime] = useState(new Date());
-  const [selectedYear, setSelectedYear] = useState<string>('All');
-  const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [view, setView] = useState<'home' | 'renamer' | 'catalog'>('home');
 
-  const toggleRowExpansion = (originalName: string) => {
-    setExpandedRows(prev => ({
-      ...prev,
-      [originalName]: !prev[originalName]
-    }));
-  };
-
-  useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  const handleFolderSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files) return;
-    
-    const selectedFiles = Array.from(e.target.files);
-    const videoFiles = selectedFiles
-      .filter(file => VIDEO_EXTENSIONS.some(ext => file.name.toLowerCase().endsWith(ext)))
-      .map(file => {
-        const lastDotIndex = file.name.lastIndexOf('.');
-        const nameWithoutExt = file.name.substring(0, lastDotIndex);
-        const extension = file.name.substring(lastDotIndex);
-        const isAlreadyCorrect = CORRECT_PATTERN.test(nameWithoutExt) && !DIRTY_PATTERN.test(nameWithoutExt);
-        
-        const pathParts = file.webkitRelativePath ? file.webkitRelativePath.split('/') : [];
-        const relativePath = pathParts.length > 1 ? pathParts.slice(1).join('/') : file.name;
-        const relativeDir = pathParts.length > 2 ? pathParts.slice(1, -1).join('/') : '';
-
-        return {
-          originalName: file.name,
-          relativePath,
-          relativeDir,
-          nameWithoutExt,
-          extension,
-          isAlreadyCorrect
-        };
-      });
-
-    setFiles(videoFiles);
-    setAnalyzedFiles([]);
-    setError('');
-  };
-
-  const analyzeFiles = async (specificFiles?: FileData[]) => {
-    const filesToAnalyze = specificFiles || files.filter(f => !f.isAlreadyCorrect);
-    if (filesToAnalyze.length === 0) return;
-    
-    let aiData: any[] = [];
-
-    setLoading(true);
-    setError('');
-
-    try {
-      const fileNames = filesToAnalyze.map(f => f.originalName);
-      
-      const prompt = specificFiles 
-        ? `I have a list of messy movie filenames that were difficult to parse previously. Please try harder to extract the actual movie title, release year, original movie title (if different), director, actors, and edition details from each filename. 
-        CRITICAL INSTRUCTIONS:
-        1. You MUST clean the title. Replace dots and underscores with spaces.
-        2. Remove all technical tags: resolution (1080p, 720p, 4k), codecs (x264, HEVC, h264), audio tags (ITA, ENG, AC3, DTS), source (Bluray, BDRip, DVDrip), and release group names.
-        3. Capitalize the title correctly (e.g., "The Matrix", not "the matrix").
-        4. If the release year is missing from the filename but you recognize the movie, YOU MUST PROVIDE THE CORRECT YEAR.
-        5. Provide the original movie title (e.g., the English title if the filename is in Italian).
-        
-        Filenames:\n${JSON.stringify(fileNames)}`
-        : `I have a list of messy movie filenames. Extract the actual movie title, release year, original movie title, director, actors, and edition details. 
-        CRITICAL: Clean the title by replacing dots/underscores with spaces and removing all technical tags (1080p, Bluray, x264, ITA, ENG, etc.). Capitalize correctly. If the year is missing but you know the movie, provide the year.
-        
-        Filenames:\n${JSON.stringify(fileNames)}`;
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              results: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    originalName: { type: Type.STRING, description: "The exact original filename provided." },
-                    cleanTitle: { type: Type.STRING, description: "The cleaned, human-readable movie title with spaces and proper capitalization." },
-                    year: { type: Type.STRING, description: "The release year (e.g., '1999'). Guess it if missing from filename but movie is known." },
-                    originalTitle: { type: Type.STRING, description: "The original title of the movie (e.g., English title if the filename is translated). Empty string if same or unknown." },
-                    director: { type: Type.STRING, description: "The director of the movie, if present in the filename or if you know it. Empty string if unknown." },
-                    actors: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of actors mentioned in the filename or main cast if known. Empty array if none." },
-                    edition: { type: Type.STRING, description: "Specific edition details (e.g., 'Director\\'s Cut', 'Extended Edition', 'Remastered'), if present. Empty string if unknown." }
-                  },
-                  required: ["originalName", "cleanTitle", "year"]
-                }
-              }
-            },
-            required: ["results"]
-          }
-        }
-      });
-
-      if (response.text) {
-        try {
-          const parsed = JSON.parse(response.text);
-          if (!parsed.results || !Array.isArray(parsed.results)) {
-            throw new Error("Formato JSON non valido: array 'results' mancante.");
-          }
-          aiData = parsed.results;
-        } catch (parseErr) {
-          console.error("JSON Parse Error:", parseErr, response.text);
-          setError("L'Intelligenza Artificiale ha restituito dati in un formato non leggibile. Prova a riavviare l'analisi o a selezionare meno file alla volta.");
-          setLoading(false);
-          return;
-        }
-      } else {
-        setError("L'IA non ha restituito alcun dato. Potrebbe esserci un problema temporaneo con il servizio. Riprova tra poco.");
-        setLoading(false);
-        return;
-      }
-    } catch (err: any) {
-      console.error("API Error:", err);
-      let errorMessage = "Errore sconosciuto durante l'analisi. Riprova tra poco.";
-      
-      if (err.status === 429 || err.message?.includes('429') || err.message?.toLowerCase().includes('quota')) {
-        errorMessage = "Hai superato il limite di richieste all'IA. Attendi qualche minuto e riprova.";
-      } else if (err.status === 401 || err.status === 403 || err.message?.toLowerCase().includes('api key')) {
-        errorMessage = "Problema di autenticazione con l'IA. Verifica che la chiave API sia configurata correttamente.";
-      } else if (err.message?.toLowerCase().includes('fetch') || err.message?.toLowerCase().includes('network')) {
-        errorMessage = "Errore di rete. Controlla la tua connessione internet e riprova.";
-      } else if (err.message) {
-        errorMessage = `Errore durante l'analisi: ${err.message}`;
-      }
-
-      setError(errorMessage);
-      setLoading(false);
-      return;
-    }
-
-    setAnalyzedFiles(prev => {
-      const baseFiles = specificFiles ? prev : files.map(file => {
-        if (file.isAlreadyCorrect) {
-          return {
-            originalName: file.originalName,
-            relativePath: file.relativePath,
-            relativeDir: file.relativeDir,
-            cleanTitle: file.nameWithoutExt.replace(/ \(\d{4}\)$/, ''),
-            year: file.nameWithoutExt.match(/\((\d{4})\)$/)?.[1] || '',
-            originalTitle: '',
-            director: '',
-            actors: [],
-            edition: '',
-            extension: file.extension,
-            proposedName: file.originalName,
-            selected: false,
-            isAlreadyCorrect: true
-          };
-        }
-        return {
-          originalName: file.originalName,
-          relativePath: file.relativePath,
-          relativeDir: file.relativeDir,
-          cleanTitle: file.nameWithoutExt,
-          year: '',
-          originalTitle: '',
-          director: '',
-          actors: [],
-          edition: '',
-          extension: file.extension,
-          proposedName: file.originalName,
-          selected: false,
-          isAlreadyCorrect: false
-        };
-      });
-
-      const merged = baseFiles.map(file => {
-        if (file.isAlreadyCorrect) return file;
-        
-        const data = aiData.find((d: any) => d.originalName === file.originalName);
-        if (!data && specificFiles) return file; // Keep existing if not re-analyzed
-
-        const cleanTitle = (data?.cleanTitle || file.cleanTitle).replace(/[\n\r]/g, ' ');
-        const yearData = (data?.year || '').replace(/[\n\r]/g, ' ').trim();
-        const year = yearData ? ` (${yearData})` : '';
-        const originalTitle = (data?.originalTitle || '').replace(/[\n\r]/g, ' ').trim();
-        const director = (data?.director || '').replace(/[\n\r]/g, ' ').trim();
-        const actors = Array.isArray(data?.actors) ? data.actors.map((a: string) => a.replace(/[\n\r]/g, ' ').trim()).filter(Boolean) : [];
-        const edition = (data?.edition || '').replace(/[\n\r]/g, ' ').trim();
-        
-        const safeTitle = cleanTitle.replace(/[<>:"/\\|?*]+/g, '').replace(/\s+/g, ' ').trim();
-        const proposedName = `${safeTitle}${year}${file.extension}`;
-        
-        return {
-          ...file,
-          cleanTitle: safeTitle,
-          year: yearData,
-          originalTitle,
-          director,
-          actors,
-          edition,
-          proposedName: proposedName,
-          selected: proposedName !== file.originalName,
-        };
-      });
-      
-      const finalMerged = merged.map(file => {
-        const hasConflict = file.originalName !== file.proposedName && 
-          merged.some(other => other.originalName !== file.originalName && other.originalName === file.proposedName);
-        return {
-          ...file,
-          hasConflict,
-          selected: hasConflict ? false : file.selected
-        };
-      });
-
-      return finalMerged;
-    });
-    
-    setLoading(false);
-  };
-
-  const reanalyzeProblematicFiles = () => {
-    const problematicFiles = analyzedFiles
-      .filter(f => (!f.isAlreadyCorrect && f.originalName === f.proposedName) || f.hasConflict)
-      .map(f => files.find(orig => orig.originalName === f.originalName))
-      .filter(Boolean) as FileData[];
-      
-    if (problematicFiles.length > 0) {
-      analyzeFiles(problematicFiles);
-    }
-  };
-
-  const toggleSelection = (originalName: string) => {
-    setAnalyzedFiles(prev => prev.map(f => 
-      f.originalName === originalName ? { ...f, selected: !f.selected } : f
-    ));
-  };
-
-  const generateScript = (os: 'windows' | 'mac') => {
-    const selected = analyzedFiles.filter(f => f.selected);
-    if (selected.length === 0) return;
-
-    let scriptContent = '';
-    let filename = '';
-
-    if (os === 'windows') {
-      scriptContent = '@echo off\r\nchcp 65001 > nul\r\n';
-      scriptContent += 'cd /d "%~dp0"\r\n\r\n';
-      scriptContent += 'echo =========================================\r\n';
-      scriptContent += 'echo Inizio rinominazione dei file video...\r\n';
-      scriptContent += 'echo =========================================\r\n\r\n';
-
-      selected.forEach(f => {
-        const safeOrig = f.relativePath.replace(/[\n\r]/g, '').replace(/\//g, '\\');
-        const safeProp = f.proposedName.replace(/[\n\r]/g, '');
-        
-        scriptContent += `echo Rinomino: "${safeOrig}" -^> "${safeProp}"\r\n`;
-        scriptContent += `if exist "${safeOrig}" (\r\n`;
-        scriptContent += `    ren "${safeOrig}" "${safeProp}"\r\n`;
-        scriptContent += `    if errorlevel 1 (\r\n`;
-        scriptContent += `        echo [ERRORE] Impossibile rinominare il file.\r\n`;
-        scriptContent += `    ) else (\r\n`;
-        scriptContent += `        echo [OK] Rinominato con successo.\r\n`;
-        scriptContent += `    )\r\n`;
-        scriptContent += `) else (\r\n`;
-        scriptContent += `    echo [ATTENZIONE] File non trovato. Assicurati che lo script sia nella cartella corretta.\r\n`;
-        scriptContent += `)\r\n`;
-        scriptContent += `echo.\r\n`;
-      });
-      scriptContent += '\r\necho =========================================\r\n';
-      scriptContent += 'echo Rinominazione completata!\r\n';
-      scriptContent += 'echo =========================================\r\n';
-      scriptContent += 'pause\r\n';
-      filename = 'rinomina_film.bat';
-    } else {
-      scriptContent = '#!/bin/bash\n';
-      scriptContent += 'cd "$(dirname "$0")"\n\n';
-      scriptContent += 'echo "========================================="\n';
-      scriptContent += 'echo "Inizio rinominazione dei file video..."\n';
-      scriptContent += 'echo "========================================="\n\n';
-
-      selected.forEach(f => {
-        const safeOrig = f.relativePath.replace(/[\n\r]/g, '');
-        const safeProp = f.proposedName.replace(/[\n\r]/g, '');
-        const dirPrefix = f.relativeDir ? f.relativeDir + '/' : '';
-        
-        scriptContent += `echo 'Rinomino: "${safeOrig}" -> "${safeProp}"'\n`;
-        scriptContent += `if [ -f "${safeOrig}" ]; then\n`;
-        scriptContent += `    mv "${safeOrig}" "${dirPrefix}${safeProp}"\n`;
-        scriptContent += `    if [ $? -eq 0 ]; then\n`;
-        scriptContent += `        echo "[OK] Rinominato con successo."\n`;
-        scriptContent += `    else\n`;
-        scriptContent += `        echo "[ERRORE] Impossibile rinominare il file."\n`;
-        scriptContent += `    fi\n`;
-        scriptContent += `else\n`;
-        scriptContent += `    echo "[ATTENZIONE] File non trovato. Assicurati che lo script sia nella cartella corretta."\n`;
-        scriptContent += `fi\n`;
-        scriptContent += `echo ""\n`;
-      });
-      scriptContent += '\necho "========================================="\n';
-      scriptContent += 'echo "Rinominazione completata!"\n';
-      scriptContent += 'echo "========================================="\n';
-      filename = 'rinomina_film.sh';
-    }
-
-    const blobContent = os === 'windows' ? '\uFEFF' + scriptContent : scriptContent;
-    const blob = new Blob([blobContent], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
-
-  const handleDownloadClick = (os: 'windows' | 'mac') => {
-    setScriptTypeToGenerate(os);
-    setShowConfirmDialog(true);
-  };
-
-  const confirmGenerateScript = () => {
-    if (scriptTypeToGenerate) {
-      generateScript(scriptTypeToGenerate);
-    }
-    setShowConfirmDialog(false);
-    setScriptTypeToGenerate(null);
-  };
-
-  const cancelGenerateScript = () => {
-    setShowConfirmDialog(false);
-    setScriptTypeToGenerate(null);
-  };
-
-  const generateInstructionsPDF = () => {
-    const doc = new jsPDF();
-    
-    // Configurazione font e colori
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(22);
-    doc.setTextColor(41, 128, 185);
-    doc.text("AI Luongo Movie Renamer", 20, 20);
-    
-    doc.setFontSize(16);
-    doc.setTextColor(44, 62, 80);
-    doc.text("Guida all'Installazione Locale", 20, 30);
-    
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(12);
-    doc.setTextColor(0, 0, 0);
-    
-    let y = 45;
-    const lineHeight = 7;
-    
-    const addLine = (text: string, isBold = false) => {
-      if (isBold) doc.setFont("helvetica", "bold");
-      else doc.setFont("helvetica", "normal");
-      
-      const lines = doc.splitTextToSize(text, 170);
-      doc.text(lines, 20, y);
-      y += lines.length * lineHeight;
-    };
-
-    addLine("Questa guida ti spieghera' come far funzionare l'applicazione sul tuo computer locale.", false);
-    y += 5;
-    
-    addLine("1. Prerequisiti", true);
-    addLine("- Node.js: Assicurati di aver installato Node.js (scaricabile da nodejs.org).");
-    addLine("- Chiave API Gemini: Devi avere una chiave API valida di Google Gemini.");
-    y += 5;
-
-    addLine("2. Download del Progetto", true);
-    addLine("- Clicca sull'icona dell'ingranaggio (Impostazioni) in alto a destra in AI Studio.");
-    addLine("- Seleziona 'Esporta progetto' e scarica il file ZIP.");
-    addLine("- Estrai il file ZIP in una cartella sul tuo computer.");
-    y += 5;
-
-    addLine("3. Installazione", true);
-    addLine("- Apri il Terminale (o Prompt dei comandi) e naviga nella cartella estratta.");
-    addLine("- Esegui il comando:  npm install");
-    addLine("  (Questo scarichera' tutte le librerie necessarie).");
-    y += 5;
-
-    addLine("4. Configurazione della Chiave API", true);
-    addLine("- Nella cartella del progetto, trova il file chiamato '.env.example'.");
-    addLine("- Rinominalo in '.env' (senza .example).");
-    addLine("- Apri il file .env con un editor di testo e inserisci la tua chiave API:");
-    addLine('  GEMINI_API_KEY="INSERISCI_QUI_LA_TUA_CHIAVE"');
-    y += 5;
-
-    addLine("5. Avvio dell'Applicazione", true);
-    addLine("- Nel terminale, esegui il comando:  npm run dev");
-    addLine("- Il terminale mostrera' un indirizzo locale (solitamente http://localhost:3000).");
-    addLine("- Apri quell'indirizzo nel tuo browser web.");
-    y += 5;
-
-    addLine("Fatto! Ora puoi usare AI Luongo Movie Renamer direttamente dal tuo PC.", true);
-
-    doc.save("Istruzioni_Locali_Movie_Renamer.pdf");
-  };
-
-  const unmodifiedCount = analyzedFiles.filter(f => !f.isAlreadyCorrect && f.originalName === f.proposedName).length;
-  const conflictCount = analyzedFiles.filter(f => f.hasConflict).length;
-  const selectedCount = analyzedFiles.filter(f => f.selected).length;
-
-  const getYearString = (yearField: string) => yearField.replace(/[() ]/g, '');
-  const availableYears = Array.from(new Set(analyzedFiles.map(f => getYearString(f.year)).filter(Boolean))).sort().reverse();
-  
-  const filteredFiles = analyzedFiles.filter(f => {
-    let statusMatch = true;
-    if (filterType === 'problematic') {
-      statusMatch = (!f.isAlreadyCorrect && f.originalName === f.proposedName) || !!f.hasConflict;
-    } else if (filterType === 'to_rename') {
-      statusMatch = !f.isAlreadyCorrect && f.originalName !== f.proposedName && !f.hasConflict;
-    } else if (filterType === 'correct') {
-      statusMatch = f.isAlreadyCorrect;
-    }
-
-    if (!statusMatch) return false;
-    if (selectedYear === 'All') return true;
-    return getYearString(f.year) === selectedYear;
-  });
-
-  const timeString = currentTime.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  const dateString = currentTime.toLocaleDateString('it-IT', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
+  if (view === 'renamer') {
+    return <MovieRenamer onBack={() => setView('home')} />;
+  }
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-neutral-50 font-sans selection:bg-neutral-800 pt-28 pb-12 px-6 md:pt-32 md:pb-16 md:px-12">
-      {/* Top Bar */}
-      <div className="fixed top-0 left-0 right-0 h-16 bg-neutral-950/80 backdrop-blur-xl border-b border-neutral-800/60 z-50 flex items-center justify-between px-4 md:px-8 shadow-2xl">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-[0_0_15px_rgba(59,130,246,0.5)]">
-            <Sparkles className="w-4 h-4 text-white" />
-          </div>
-          <h1 className="font-bold text-lg md:text-xl tracking-tight bg-gradient-to-r from-white via-blue-100 to-blue-400 bg-clip-text text-transparent">
-            AI Luongo Movie Renamer
-          </h1>
-        </div>
-        <div className="flex items-center gap-4">
-          <button 
-            onClick={generateInstructionsPDF}
-            className="hidden sm:flex items-center gap-2 text-neutral-400 hover:text-white bg-neutral-900/50 hover:bg-neutral-800 border border-neutral-800 px-3 py-1.5 rounded-xl transition-colors text-sm font-medium"
-            title="Scarica istruzioni per l'uso locale"
-          >
-            <FileText className="w-4 h-4" />
-            <span className="hidden md:inline">Istruzioni Locali</span>
-          </button>
-          <span className="hidden lg:block text-neutral-400 text-sm capitalize">{dateString}</span>
-          <div className="bg-black/50 border border-neutral-800 px-3 md:px-4 py-1.5 rounded-xl flex items-center gap-2 shadow-inner">
-            <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
-            <span className="font-mono text-blue-400 font-bold tracking-widest text-sm md:text-base">{timeString}</span>
-          </div>
-        </div>
-      </div>
+    <div className="min-h-screen bg-neutral-950 text-neutral-50 font-sans flex flex-col items-center justify-center p-6 relative overflow-hidden">
+      {/* Background effects */}
+      <div className="absolute top-0 left-1/4 w-96 h-96 bg-blue-600/20 rounded-full blur-[128px] pointer-events-none" />
+      <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-purple-600/20 rounded-full blur-[128px] pointer-events-none" />
 
-      <div className="max-w-5xl mx-auto space-y-12">
-        
-        {/* Header */}
-        <header className="text-center space-y-4">
-          <h2 className="text-4xl md:text-5xl font-bold tracking-tight">
-            AI Movie <span className="text-blue-500">Renamer</span>
-          </h2>
-          <p className="text-neutral-400 text-lg max-w-2xl mx-auto">
-            Seleziona la tua cartella dei film. L'Intelligenza Artificiale analizzerà i nomi dei file disordinati e genererà uno script sicuro per rinominarli con Titolo e Anno corretti.
-          </p>
-        </header>
-
-        {/* Step 1: Select Folder */}
-        <section className="bg-neutral-900/50 border border-neutral-800 rounded-3xl p-8 text-center">
-          <input
-            type="file"
-            // @ts-ignore - webkitdirectory is non-standard but widely supported
-            webkitdirectory="true"
-            directory="true"
-            multiple
-            className="hidden"
-            ref={fileInputRef}
-            onChange={handleFolderSelect}
-          />
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="inline-flex items-center gap-3 bg-white text-black px-8 py-4 rounded-full font-semibold text-lg hover:bg-neutral-200 transition-colors"
-          >
-            <FolderOpen className="w-6 h-6" />
-            Seleziona Cartella "Films"
-          </button>
-          
-          {files.length > 0 && analyzedFiles.length === 0 && (
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="z-10 w-full max-w-5xl mx-auto flex flex-col items-center"
+      >
+        {/* Logo Area */}
+        <div className="mb-16 flex flex-col items-center">
+          <div className="flex flex-col md:flex-row items-center justify-center gap-6 mb-6">
             <motion.div 
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="mt-8 space-y-6"
+              initial={{ scale: 0.8, opacity: 0, rotate: -10 }}
+              animate={{ scale: 1, opacity: 1, rotate: 0 }}
+              transition={{ type: "spring", duration: 1 }}
+              className="w-24 h-24 md:w-28 md:h-28 relative flex-shrink-0"
             >
-              <div className="text-neutral-400 max-w-3xl mx-auto">
-                <div className="flex items-center justify-center gap-4 md:gap-6 mb-6">
-                  <div className="bg-neutral-900 px-6 py-3 rounded-2xl border border-neutral-800 flex-1">
-                    <span className="block text-2xl font-bold text-white">{files.length}</span>
-                    <span className="text-xs uppercase tracking-wider text-neutral-500">Totali</span>
-                  </div>
-                  <div className="bg-blue-950/30 px-6 py-3 rounded-2xl border border-blue-900/50 flex-1">
-                    <span className="block text-2xl font-bold text-blue-400">{files.filter(f => !f.isAlreadyCorrect).length}</span>
-                    <span className="text-xs uppercase tracking-wider text-blue-500">Da Rinominare</span>
-                  </div>
-                  <div className="bg-green-950/30 px-6 py-3 rounded-2xl border border-green-900/50 flex-1">
-                    <span className="block text-2xl font-bold text-green-400">{files.filter(f => f.isAlreadyCorrect).length}</span>
-                    <span className="text-xs uppercase tracking-wider text-green-500">Già Corretti</span>
-                  </div>
-                </div>
-
-                <div className="max-h-64 overflow-y-auto bg-neutral-950/50 rounded-xl border border-neutral-800 p-4 text-left text-sm font-mono space-y-2 mb-6 shadow-inner">
-                  {files.map((f, i) => (
-                    <div key={i} className="flex items-center justify-between gap-4 p-2 rounded-lg hover:bg-neutral-900/50 transition-colors">
-                      <div className="truncate text-neutral-300 flex items-center gap-3">
-                        <FileVideo className="w-4 h-4 text-neutral-500 flex-shrink-0" />
-                        <span className="truncate">{f.originalName}</span>
-                      </div>
-                      {f.isAlreadyCorrect ? (
-                        <span className="flex items-center gap-1.5 text-green-400 bg-green-400/10 px-2.5 py-1 rounded-md text-xs font-sans font-medium flex-shrink-0">
-                          <CheckCircle2 className="w-3.5 h-3.5" /> OK
-                        </span>
-                      ) : (
-                        <span className="flex items-center gap-1.5 text-blue-400 bg-blue-400/10 px-2.5 py-1 rounded-md text-xs font-sans font-medium flex-shrink-0">
-                          <AlertTriangle className="w-3.5 h-3.5" /> Da elaborare
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <button
-                onClick={() => analyzeFiles()}
-                disabled={loading || files.filter(f => !f.isAlreadyCorrect).length === 0}
-                className="inline-flex items-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-full font-medium hover:bg-blue-700 transition-colors disabled:opacity-50"
+              <CustomLogo className="w-full h-full drop-shadow-[0_0_20px_rgba(99,102,241,0.5)]" />
+            </motion.div>
+            <div className="flex flex-col items-center md:items-start">
+              <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight bg-gradient-to-r from-white via-blue-100 to-indigo-300 bg-clip-text text-transparent text-center md:text-left drop-shadow-sm">
+                AI Movie Studio
+              </h1>
+              <motion.div 
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.3 }}
+                className="mt-3 px-4 py-1.5 rounded-full bg-neutral-900/80 border border-neutral-800 text-sm font-medium text-neutral-300 shadow-lg flex items-center gap-2"
               >
-                {loading ? (
-                  <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: "linear" }}>
-                    <Sparkles className="w-5 h-5" />
-                  </motion.div>
-                ) : (
-                  <Sparkles className="w-5 h-5" />
-                )}
-                {loading ? 'Analisi in corso...' : files.filter(f => !f.isAlreadyCorrect).length === 0 ? 'Tutti i file sono già corretti' : 'Analizza file da rinominare'}
-              </button>
-            </motion.div>
-          )}
-        </section>
+                <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                Ideato da <span className="text-white font-semibold">Fiore Luongo</span>
+              </motion.div>
+            </div>
+          </div>
+          <p className="text-neutral-400 text-lg md:text-xl text-center max-w-2xl leading-relaxed mt-4">
+            La tua suite intelligente per la gestione cinematografica. Usa l'Intelligenza Artificiale per organizzare, rinominare e catalogare la tua libreria.
+          </p>
+        </div>
 
-        {/* Error Message */}
-        <AnimatePresence>
-          {error && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              className="bg-red-950/30 border border-red-900/50 text-red-400 p-4 rounded-xl flex items-center gap-3"
-            >
-              <AlertCircle className="w-5 h-5 flex-shrink-0" />
-              <p>{error}</p>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Step 2: Review and Download */}
-        {analyzedFiles.length > 0 && (
-          <motion.section
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="space-y-8"
+        {/* Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-4xl">
+          {/* Renamer Card */}
+          <motion.button
+            whileHover={{ scale: 1.02, y: -4 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={() => setView('renamer')}
+            className="group relative text-left bg-neutral-900/40 hover:bg-neutral-800/60 backdrop-blur-xl border border-neutral-800 hover:border-blue-500/50 p-8 rounded-3xl transition-all duration-300 overflow-hidden shadow-xl"
           >
-            <div className="flex flex-col md:flex-row items-center justify-between gap-4 bg-blue-950/20 border border-blue-900/30 p-6 rounded-2xl">
-              <div>
-                <h3 className="text-xl font-semibold text-blue-400">Analisi Completata</h3>
-                <p className="text-neutral-400 text-sm mt-1">
-                  Controlla i nomi proposti qui sotto. Quando sei pronto, scarica lo script per rinominare i file.
-                </p>
+            <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+            <div className="relative z-10">
+              <div className="w-16 h-16 rounded-2xl bg-blue-500/10 flex items-center justify-center mb-6 border border-blue-500/20 group-hover:bg-blue-500/20 group-hover:border-blue-500/40 transition-all duration-300 shadow-[0_0_30px_rgba(59,130,246,0.1)]">
+                <Wand2 className="w-8 h-8 text-blue-400" />
               </div>
-              <div className="flex flex-col sm:flex-row gap-4 items-end sm:items-center">
-                <div className="flex items-center gap-2 bg-neutral-900/80 border border-neutral-800 px-3 py-1.5 rounded-lg">
-                  <span className="text-xs text-neutral-400 uppercase tracking-wider font-semibold">Filtro:</span>
-                  <select 
-                    value={filterType} 
-                    onChange={(e) => setFilterType(e.target.value as any)}
-                    className="bg-transparent text-white text-sm focus:outline-none cursor-pointer"
-                  >
-                    <option value="all">Tutti i file</option>
-                    <option value="to_rename">Da rinominare</option>
-                    <option value="correct">Già corretti</option>
-                    <option value="problematic">Problematici</option>
-                  </select>
-                </div>
-                {availableYears.length > 0 && (
-                  <div className="flex items-center gap-2 bg-neutral-900/80 border border-neutral-800 px-3 py-1.5 rounded-lg">
-                    <span className="text-xs text-neutral-400 uppercase tracking-wider font-semibold">Anno:</span>
-                    <select 
-                      value={selectedYear} 
-                      onChange={(e) => setSelectedYear(e.target.value)}
-                      className="bg-transparent text-white text-sm focus:outline-none cursor-pointer"
-                    >
-                      <option value="All">Tutti</option>
-                      {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
-                    </select>
-                  </div>
-                )}
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => handleDownloadClick('windows')}
-                    disabled={selectedCount === 0}
-                    className="inline-flex items-center gap-2 bg-neutral-800 hover:bg-neutral-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <Download className="w-4 h-4" /> Script Windows (.bat)
-                  </button>
-                  <button
-                    onClick={() => handleDownloadClick('mac')}
-                    disabled={selectedCount === 0}
-                    className="inline-flex items-center gap-2 bg-neutral-800 hover:bg-neutral-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <Download className="w-4 h-4" /> Script Mac/Linux (.sh)
-                  </button>
-                </div>
+              <h2 className="text-2xl font-bold text-white mb-3 flex items-center justify-between">
+                Movie Renamer
+                <ArrowRight className="w-6 h-6 text-neutral-600 group-hover:text-blue-400 transition-colors transform group-hover:translate-x-2" />
+              </h2>
+              <p className="text-neutral-400 leading-relaxed text-sm md:text-base">
+                Pulisci e rinomina automaticamente i tuoi file video disordinati. Estrae titoli, anni, registi e metadati con precisione chirurgica grazie all'IA.
+              </p>
+            </div>
+          </motion.button>
+
+          {/* Catalog Card */}
+          <motion.button
+            whileHover={{ scale: 1.02, y: -4 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={() => {}}
+            className="group relative text-left bg-neutral-900/20 backdrop-blur-xl border border-neutral-800/50 p-8 rounded-3xl transition-all duration-300 overflow-hidden shadow-xl cursor-not-allowed"
+          >
+            <div className="absolute top-6 right-6 z-20">
+              <span className="bg-purple-500/10 text-purple-400 text-xs font-bold px-3 py-1.5 rounded-full border border-purple-500/20 shadow-[0_0_15px_rgba(168,85,247,0.2)] uppercase tracking-wider">
+                In Arrivo
+              </span>
+            </div>
+            <div className="relative z-10 opacity-50 group-hover:opacity-70 transition-opacity duration-300">
+              <div className="w-16 h-16 rounded-2xl bg-purple-500/10 flex items-center justify-center mb-6 border border-purple-500/20 shadow-[0_0_30px_rgba(168,85,247,0.1)]">
+                <Library className="w-8 h-8 text-purple-400" />
               </div>
+              <h2 className="text-2xl font-bold text-white mb-3 flex items-center justify-between">
+                Movie Catalog
+              </h2>
+              <p className="text-neutral-400 leading-relaxed text-sm md:text-base">
+                Organizza, esplora e gestisci la tua collezione. Scarica locandine, trame e dettagli in un'interfaccia elegante e moderna.
+              </p>
             </div>
-
-            {unmodifiedCount > 0 && (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="bg-yellow-950/30 border border-yellow-900/50 text-yellow-400 p-5 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
-              >
-                <div className="flex items-start gap-4">
-                  <AlertTriangle className="w-6 h-6 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <h4 className="font-semibold text-lg">Attenzione: {unmodifiedCount} file non modificati</h4>
-                    <p className="text-sm opacity-80 mt-1">
-                      L'Intelligenza Artificiale non è riuscita a proporre un nome migliore per alcuni file, oppure il nome originale era già il migliore possibile ma non corrispondeva esattamente al formato standard. Questi file sono stati deselezionati per sicurezza e non verranno inclusi nello script.
-                    </p>
-                  </div>
-                </div>
-                <div className="flex gap-2 w-full sm:w-auto">
-                  <button
-                    onClick={() => setFilterType(filterType === 'problematic' ? 'all' : 'problematic')}
-                    className="flex-1 sm:flex-none px-4 py-2 bg-yellow-900/30 hover:bg-yellow-900/50 border border-yellow-700/50 rounded-xl text-sm font-medium transition-colors whitespace-nowrap"
-                  >
-                    {filterType === 'problematic' ? 'Mostra Tutti' : 'Vedi File'}
-                  </button>
-                  <button
-                    onClick={reanalyzeProblematicFiles}
-                    disabled={loading}
-                    className="flex-1 sm:flex-none px-4 py-2 bg-yellow-600 hover:bg-yellow-500 text-yellow-950 rounded-xl text-sm font-bold transition-colors whitespace-nowrap disabled:opacity-50"
-                  >
-                    Rianalizza
-                  </button>
-                </div>
-              </motion.div>
-            )}
-
-            {conflictCount > 0 && (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="bg-red-950/30 border border-red-900/50 text-red-400 p-5 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
-              >
-                <div className="flex items-start gap-4">
-                  <AlertCircle className="w-6 h-6 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <h4 className="font-semibold text-lg">Pericolo Sovrascrittura: {conflictCount} conflitti rilevati</h4>
-                    <p className="text-sm opacity-80 mt-1">
-                      Il nome proposto per alcuni file è identico al nome originale di altri file già presenti nella cartella. Per prevenire la perdita di dati, questi file sono stati evidenziati in rosso e deselezionati.
-                    </p>
-                  </div>
-                </div>
-                <div className="flex gap-2 w-full sm:w-auto">
-                  <button
-                    onClick={() => setFilterType(filterType === 'problematic' ? 'all' : 'problematic')}
-                    className="flex-1 sm:flex-none px-4 py-2 bg-red-900/30 hover:bg-red-900/50 border border-red-700/50 rounded-xl text-sm font-medium transition-colors whitespace-nowrap"
-                  >
-                    {filterType === 'problematic' ? 'Mostra Tutti' : 'Vedi File'}
-                  </button>
-                  <button
-                    onClick={reanalyzeProblematicFiles}
-                    disabled={loading}
-                    className="flex-1 sm:flex-none px-4 py-2 bg-red-600 hover:bg-red-500 text-red-950 rounded-xl text-sm font-bold transition-colors whitespace-nowrap disabled:opacity-50"
-                  >
-                    Rianalizza
-                  </button>
-                </div>
-              </motion.div>
-            )}
-
-            <div className="bg-neutral-900/50 border border-neutral-800 rounded-2xl overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-neutral-900 text-neutral-400 border-b border-neutral-800">
-                    <tr>
-                      <th className="p-4 w-12 text-center">✓</th>
-                      <th className="p-4">Stato</th>
-                      <th className="p-4">Nome Originale</th>
-                      <th className="p-4">Nome Proposto</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-neutral-800/50">
-                    {filteredFiles.map((file, idx) => (
-                      <tr 
-                        key={idx} 
-                        className={`transition-colors hover:bg-neutral-800/30 ${!file.selected && !file.isAlreadyCorrect && !file.hasConflict ? 'opacity-50' : ''} ${file.isAlreadyCorrect ? 'bg-green-950/5' : ''} ${file.hasConflict ? 'bg-red-950/10' : ''}`}
-                      >
-                        <td className="p-4 text-center">
-                          <input
-                            type="checkbox"
-                            checked={file.selected}
-                            disabled={file.isAlreadyCorrect || file.originalName === file.proposedName || file.hasConflict}
-                            onChange={() => toggleSelection(file.originalName)}
-                            className="w-4 h-4 rounded border-neutral-700 bg-neutral-800 text-blue-500 focus:ring-blue-500 focus:ring-offset-neutral-900 disabled:opacity-30"
-                          />
-                        </td>
-                        <td className="p-4">
-                          {file.hasConflict ? (
-                            <span className="inline-flex items-center gap-1.5 text-red-400 bg-red-400/10 px-2.5 py-1 rounded-md text-xs font-medium whitespace-nowrap">
-                              <AlertCircle className="w-3.5 h-3.5" /> Conflitto
-                            </span>
-                          ) : file.isAlreadyCorrect ? (
-                            <span className="inline-flex items-center gap-1.5 text-green-400 bg-green-400/10 px-2.5 py-1 rounded-md text-xs font-medium whitespace-nowrap">
-                              <CheckCircle2 className="w-3.5 h-3.5" /> Già Corretto
-                            </span>
-                          ) : file.originalName === file.proposedName ? (
-                            <span className="inline-flex items-center gap-1.5 text-yellow-400 bg-yellow-400/10 px-2.5 py-1 rounded-md text-xs font-medium whitespace-nowrap">
-                              <AlertTriangle className="w-3.5 h-3.5" /> Nessuna Modifica
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1.5 text-blue-400 bg-blue-400/10 px-2.5 py-1 rounded-md text-xs font-medium whitespace-nowrap">
-                              <Sparkles className="w-3.5 h-3.5" /> Nuovo Nome
-                            </span>
-                          )}
-                        </td>
-                        <td className="p-4 text-neutral-400 font-mono text-xs break-all">
-                          {file.originalName}
-                        </td>
-                        <td className={`p-4 font-medium break-all ${file.isAlreadyCorrect || file.originalName === file.proposedName ? 'text-neutral-500' : 'text-green-400'}`}>
-                          <div className="flex items-center justify-between gap-2">
-                            <span>{file.proposedName}</span>
-                            {(file.originalTitle || file.director || (file.actors && file.actors.length > 0) || file.edition || file.year) && (
-                              <button 
-                                onClick={() => toggleRowExpansion(file.originalName)} 
-                                className="p-1.5 hover:bg-neutral-800/80 rounded-md text-neutral-400 hover:text-white transition-colors flex-shrink-0"
-                                title="Mostra/Nascondi Metadati"
-                              >
-                                {expandedRows[file.originalName] ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                              </button>
-                            )}
-                          </div>
-                          <AnimatePresence>
-                            {expandedRows[file.originalName] && (
-                              <motion.div
-                                initial={{ height: 0, opacity: 0 }}
-                                animate={{ height: 'auto', opacity: 1 }}
-                                exit={{ height: 0, opacity: 0 }}
-                                className="overflow-hidden"
-                              >
-                                <div className="text-xs text-neutral-300 mt-3 p-3 bg-neutral-950/50 rounded-lg border border-neutral-800/50 space-y-1.5 font-sans">
-                                  {file.year && <div><span className="font-semibold text-neutral-500 mr-1">Anno:</span> {file.year}</div>}
-                                  {file.originalTitle && <div><span className="font-semibold text-neutral-500 mr-1">Titolo Originale:</span> {file.originalTitle}</div>}
-                                  {file.director && <div><span className="font-semibold text-neutral-500 mr-1">Regia:</span> {file.director}</div>}
-                                  {file.actors && file.actors.length > 0 && <div><span className="font-semibold text-neutral-500 mr-1">Cast:</span> {file.actors.join(', ')}</div>}
-                                  {file.edition && <div><span className="font-semibold text-neutral-500 mr-1">Edizione:</span> {file.edition}</div>}
-                                </div>
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </motion.section>
-        )}
-        {/* Confirmation Dialog */}
-        <AnimatePresence>
-          {showConfirmDialog && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-                onClick={cancelGenerateScript}
-              />
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95, y: 20 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                className="relative bg-neutral-900 border border-neutral-800 p-6 md:p-8 rounded-3xl max-w-md w-full shadow-2xl"
-              >
-                <h3 className="text-2xl font-bold text-white mb-2">Conferma Download</h3>
-                <div className="text-neutral-400 mb-6 space-y-3">
-                  <p>
-                    Stai per scaricare uno script che rinominerà <strong className="text-white">{selectedCount}</strong> file video.
-                  </p>
-                  <div className="bg-blue-950/30 border border-blue-900/50 p-4 rounded-xl text-sm">
-                    <strong className="text-blue-400 block mb-1">⚠️ Istruzione Importante:</strong>
-                    Per funzionare correttamente su qualsiasi cartella o disco esterno, dovrai <strong>spostare il file scaricato all'interno della cartella che contiene i tuoi film</strong> prima di fare doppio clic per avviarlo.
-                  </div>
-                </div>
-                <div className="flex justify-end gap-3">
-                  <button
-                    onClick={cancelGenerateScript}
-                    className="px-5 py-2.5 rounded-xl font-medium text-neutral-300 hover:bg-neutral-800 transition-colors"
-                  >
-                    Annulla
-                  </button>
-                  <button
-                    onClick={confirmGenerateScript}
-                    className="px-5 py-2.5 rounded-xl font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors flex items-center gap-2"
-                  >
-                    <Download className="w-4 h-4" /> Scarica Script
-                  </button>
-                </div>
-              </motion.div>
-            </div>
-          )}
-        </AnimatePresence>
-
-      </div>
+          </motion.button>
+        </div>
+      </motion.div>
     </div>
   );
 }
