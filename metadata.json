@@ -1,0 +1,5 @@
+{
+  "name": "AI Movie Renamer",
+  "description": "Analizza i nomi dei file video e genera uno script per rinominarli con Titolo e Anno corretti.",
+  "requestFramePermissions": []
+}
