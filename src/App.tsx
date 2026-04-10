@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
-import { Film, Wand2, Library, ArrowRight } from 'lucide-react';
+import { Film, Wand2, Library, ArrowRight, FileEdit } from 'lucide-react';
 import MovieRenamer from './MovieRenamer';
 
 const CustomLogo = ({ className }: { className?: string }) => (
@@ -38,7 +38,7 @@ const CustomLogo = ({ className }: { className?: string }) => (
 );
 
 export default function App() {
-  const [view, setView] = useState<'home' | 'renamer' | 'catalog'>('home');
+  const [view, setView] = useState<'home' | 'renamer' | 'catalog' | 'metadata'>('home');
 
   if (view === 'renamer') {
     return <MovieRenamer onBack={() => setView('home')} />;
@@ -87,7 +87,7 @@ export default function App() {
         </div>
 
         {/* Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-4xl">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 w-full max-w-6xl">
           {/* Renamer Card */}
           <motion.button
             whileHover={{ scale: 1.02, y: -4 }}
@@ -131,6 +131,31 @@ export default function App() {
               </h2>
               <p className="text-neutral-400 leading-relaxed text-sm md:text-base">
                 Organizza, esplora e gestisci la tua collezione. Scarica locandine, trame e dettagli in un'interfaccia elegante e moderna.
+              </p>
+            </div>
+          </motion.button>
+
+          {/* Metadata Card */}
+          <motion.button
+            whileHover={{ scale: 1.02, y: -4 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={() => {}}
+            className="group relative text-left bg-neutral-900/20 backdrop-blur-xl border border-neutral-800/50 p-8 rounded-3xl transition-all duration-300 overflow-hidden shadow-xl cursor-not-allowed"
+          >
+            <div className="absolute top-6 right-6 z-20">
+              <span className="bg-emerald-500/10 text-emerald-400 text-xs font-bold px-3 py-1.5 rounded-full border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.2)] uppercase tracking-wider">
+                In Arrivo
+              </span>
+            </div>
+            <div className="relative z-10 opacity-50 group-hover:opacity-70 transition-opacity duration-300">
+              <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 flex items-center justify-center mb-6 border border-emerald-500/20 shadow-[0_0_30px_rgba(16,185,129,0.1)]">
+                <FileEdit className="w-8 h-8 text-emerald-400" />
+              </div>
+              <h2 className="text-2xl font-bold text-white mb-3 flex items-center justify-between">
+                Edit Metadata
+              </h2>
+              <p className="text-neutral-400 leading-relaxed text-sm md:text-base">
+                Modifica e scrivi i metadati interni (titolo, anno, cover) direttamente nei tuoi file video per una compatibilità perfetta con i player.
               </p>
             </div>
           </motion.button>
