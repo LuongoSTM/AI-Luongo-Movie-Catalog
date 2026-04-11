@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { ArrowLeft, Image as ImageIcon, Search, Save, X, FolderOpen, Edit2, Upload, FileVideo, AlertCircle, ShieldAlert } from 'lucide-react';
 import { Type } from '@google/genai';
 import { getGenAI, getApiKeyStatus } from './lib/gemini';
+import { Logo } from './components/Logo';
 
 declare global {
   interface Window {
@@ -305,6 +306,9 @@ export default function MetadataEditor({ onBack }: MetadataEditorProps) {
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
+          <div className="w-[120px] h-[120px] flex items-center justify-center">
+            <Logo className="w-full h-full drop-shadow-[0_0_12px_rgba(255,0,128,0.25)]" />
+          </div>
           <h1 className="text-xl font-bold text-white">Edit Media Metadata</h1>
         </div>
         <button onClick={onBack} className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-400 transition-colors">

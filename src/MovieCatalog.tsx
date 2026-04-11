@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeft, FolderOpen, Play, Info, Search, Star, Clock, Calendar, Library, Film, X } from 'lucide-react';
+import { Logo } from './components/Logo';
 
 declare global {
   interface Window {
@@ -170,6 +171,9 @@ export default function MovieCatalog({ onBack }: { onBack: () => void }) {
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
+          <div className="w-[120px] h-[120px] flex items-center justify-center">
+            <Logo className="w-full h-full drop-shadow-[0_0_12px_rgba(255,0,128,0.25)]" />
+          </div>
           <h1 className="text-2xl font-bold bg-gradient-to-r from-white to-neutral-400 bg-clip-text text-transparent">
             Movie Catalog
           </h1>

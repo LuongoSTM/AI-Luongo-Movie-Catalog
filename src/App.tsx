@@ -5,40 +5,7 @@ import MovieRenamer from './MovieRenamer';
 import MetadataEditor from './MetadataEditor';
 import MovieCatalog from './MovieCatalog';
 import Manual from './Manual';
-
-const CustomLogo = ({ className }: { className?: string }) => (
-  <svg viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
-    <defs>
-      <linearGradient id="logoGradMain" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stopColor="#60a5fa" />
-        <stop offset="50%" stopColor="#818cf8" />
-        <stop offset="100%" stopColor="#c084fc" />
-      </linearGradient>
-      <linearGradient id="logoGradDark" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stopColor="#1e3a8a" />
-        <stop offset="100%" stopColor="#4c1d95" />
-      </linearGradient>
-      <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-        <feGaussianBlur stdDeviation="4" result="blur" />
-        <feComposite in="SourceGraphic" in2="blur" operator="over" />
-      </filter>
-    </defs>
-    
-    <rect x="10" y="10" width="100" height="100" rx="28" fill="url(#logoGradDark)" opacity="0.6" />
-    <rect x="10" y="10" width="100" height="100" rx="28" stroke="url(#logoGradMain)" strokeWidth="3" />
-    
-    <circle cx="22" cy="30" r="3.5" fill="#0a0a0a" />
-    <circle cx="22" cy="60" r="3.5" fill="#0a0a0a" />
-    <circle cx="22" cy="90" r="3.5" fill="#0a0a0a" />
-    <circle cx="98" cy="30" r="3.5" fill="#0a0a0a" />
-    <circle cx="98" cy="60" r="3.5" fill="#0a0a0a" />
-    <circle cx="98" cy="90" r="3.5" fill="#0a0a0a" />
-
-    <path d="M42 40 L78 60 L42 80 Z" fill="url(#logoGradMain)" filter="url(#glow)" />
-    
-    <path d="M85 15 Q90 25 100 30 Q90 35 85 45 Q80 35 70 30 Q80 25 85 15 Z" fill="#ffffff" filter="url(#glow)" />
-  </svg>
-);
+import { Logo } from './components/Logo';
 
 export default function App() {
   const [view, setView] = useState<'home' | 'renamer' | 'catalog' | 'metadata' | 'manual'>('home');
@@ -88,9 +55,9 @@ export default function App() {
               initial={{ scale: 0.8, opacity: 0, rotate: -10 }}
               animate={{ scale: 1, opacity: 1, rotate: 0 }}
               transition={{ type: "spring", duration: 1 }}
-              className="w-24 h-24 md:w-28 md:h-28 relative flex-shrink-0"
+              className="w-56 h-56 md:w-[250px] md:h-[250px] relative flex-shrink-0"
             >
-              <CustomLogo className="w-full h-full drop-shadow-[0_0_20px_rgba(99,102,241,0.5)]" />
+              <Logo className="w-full h-full drop-shadow-[0_0_30px_rgba(255,0,128,0.3)]" />
             </motion.div>
             <div className="flex flex-col items-center md:items-start">
               <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight bg-gradient-to-r from-white via-blue-100 to-indigo-300 bg-clip-text text-transparent text-center md:text-left drop-shadow-sm">
