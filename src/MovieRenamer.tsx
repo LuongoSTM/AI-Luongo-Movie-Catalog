@@ -1,10 +1,17 @@
-import { useState, useRef, useEffect } from 'react';
-import { GoogleGenAI, Type } from '@google/genai';
-import { FolderOpen, Sparkles, Download, CheckCircle2, FileVideo, AlertCircle, AlertTriangle, FileText, ChevronDown, ChevronUp, ArrowLeft } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Type } from '@google/genai';
+import { getGenAI, getApiKeyStatus } from './lib/gemini';
+import { FolderOpen, Sparkles, Download, CheckCircle2, FileVideo, AlertCircle, AlertTriangle, FileText, ChevronDown, ChevronUp, ArrowLeft, Save, ShieldAlert } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { jsPDF } from 'jspdf';
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+// AI client is now initialized lazily via getGenAI()
+
+declare global {
+  interface Window {
+    showDirectoryPicker(options?: any): Promise<any>;
+  }
+}
 
 interface FileData {
   originalName: string;
@@ -13,6 +20,7 @@ interface FileData {
   nameWithoutExt: string;
   extension: string;
   isAlreadyCorrect: boolean;
+  fileHandle?: any;
 }
 
 interface AnalyzedFile {
@@ -38,9 +46,11 @@ const DIRTY_PATTERN = /(1080p|720p|2160p|4k|bluray|bdrip|brrip|dvdrip|web-dl|web
 
 export default function MovieRenamer({ onBack }: { onBack: () => void }) {
   const [files, setFiles] = useState<FileData[]>([]);
+  const [dirHandle, setDirHandle] = useState<any>(null);
   const [analyzedFiles, setAnalyzedFiles] = useState<AnalyzedFile[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [isSecurityError, setIsSecurityError] = useState(false);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [filterType, setFilterType] = useState<'all' | 'to_rename' | 'correct' | 'problematic'>('all');
   const [scriptTypeToGenerate, setScriptTypeToGenerate] = useState<'windows' | 'mac' | null>(null);
@@ -61,35 +71,81 @@ export default function MovieRenamer({ onBack }: { onBack: () => void }) {
     return () => clearInterval(timer);
   }, []);
 
-  const handleFolderSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files) return;
+  const scanDirectoryForVideos = async (dirHandle: any, path = '', depth = 0): Promise<FileData[]> => {
+    if (depth > 4) return []; // Limite di profondità per evitare blocchi
+    let foundFiles: FileData[] = [];
+    const IGNORED_DIRS = ['.git', '.trashes', 'system volume information', 'node_modules', '$recycle.bin'];
+    let iterations = 0;
     
-    const selectedFiles = Array.from(e.target.files);
-    const videoFiles = selectedFiles
-      .filter(file => VIDEO_EXTENSIONS.some(ext => file.name.toLowerCase().endsWith(ext)))
-      .map(file => {
-        const lastDotIndex = file.name.lastIndexOf('.');
-        const nameWithoutExt = file.name.substring(0, lastDotIndex);
-        const extension = file.name.substring(lastDotIndex);
-        const isAlreadyCorrect = CORRECT_PATTERN.test(nameWithoutExt) && !DIRTY_PATTERN.test(nameWithoutExt);
+    try {
+      for await (const entry of dirHandle.values()) {
+        iterations++;
+        if (iterations % 100 === 0) await new Promise(resolve => setTimeout(resolve, 0)); // Yield to UI
         
-        const pathParts = file.webkitRelativePath ? file.webkitRelativePath.split('/') : [];
-        const relativePath = pathParts.length > 1 ? pathParts.slice(1).join('/') : file.name;
-        const relativeDir = pathParts.length > 2 ? pathParts.slice(1, -1).join('/') : '';
+        if (entry.kind === 'directory') {
+          const lowerName = entry.name.toLowerCase();
+          if (entry.name.startsWith('.') || IGNORED_DIRS.includes(lowerName)) continue;
+          
+          const subFiles = await scanDirectoryForVideos(entry, path + entry.name + '/', depth + 1);
+          foundFiles = foundFiles.concat(subFiles);
+        } else if (entry.kind === 'file') {
+          const name = entry.name as string;
+          const lowerName = name.toLowerCase();
+          if (VIDEO_EXTENSIONS.some(ext => lowerName.endsWith(ext))) {
+            const lastDotIndex = name.lastIndexOf('.');
+            const nameWithoutExt = name.substring(0, lastDotIndex);
+            const extension = name.substring(lastDotIndex);
+            const isAlreadyCorrect = CORRECT_PATTERN.test(nameWithoutExt) && !DIRTY_PATTERN.test(nameWithoutExt);
+            
+            foundFiles.push({
+              originalName: name,
+              relativePath: path + name,
+              relativeDir: path,
+              nameWithoutExt,
+              extension,
+              isAlreadyCorrect,
+              fileHandle: entry
+            });
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Error scanning directory:", e);
+    }
+    return foundFiles;
+  };
 
-        return {
-          originalName: file.name,
-          relativePath,
-          relativeDir,
-          nameWithoutExt,
-          extension,
-          isAlreadyCorrect
-        };
-      });
-
-    setFiles(videoFiles);
-    setAnalyzedFiles([]);
-    setError('');
+  const handleFolderSelect = async () => {
+    try {
+      if (!window.showDirectoryPicker) {
+        setError("Il tuo browser non supporta la File System Access API. Usa Chrome o Edge su PC.");
+        return;
+      }
+      const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+      setDirHandle(handle);
+      
+      setLoading(true);
+      setError('');
+      setIsSecurityError(false);
+      const videoFiles = await scanDirectoryForVideos(handle);
+      setLoading(false);
+      
+      setFiles(videoFiles);
+      setAnalyzedFiles([]);
+      
+      if (videoFiles.length === 0) {
+        setError("Nessun file video trovato in questa cartella o nelle sue sottocartelle.");
+      }
+    } catch (error: any) {
+      setLoading(false);
+      console.error("Errore selezione cartella:", error);
+      if (error.name === 'SecurityError' || error.message?.includes('Cross origin sub frames')) {
+        setIsSecurityError(true);
+        setError("SICUREZZA BROWSER: Per rinominare i file, l'app deve avere accesso diretto al disco. Questo è bloccato nell'anteprima.");
+      } else if (error.name !== 'AbortError') {
+        setError(`Errore durante la selezione: ${error.message || 'Impossibile accedere alla cartella'}. Assicurati di non selezionare un'intera unità di sistema (es. C:).`);
+      }
+    }
   };
 
   const analyzeFiles = async (specificFiles?: FileData[]) => {
@@ -102,6 +158,7 @@ export default function MovieRenamer({ onBack }: { onBack: () => void }) {
     setError('');
 
     try {
+      const ai = getGenAI();
       const fileNames = filesToAnalyze.map(f => f.originalName);
       
       const prompt = specificFiles 
@@ -121,7 +178,7 @@ export default function MovieRenamer({ onBack }: { onBack: () => void }) {
 
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: prompt,
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
         config: {
           responseMimeType: 'application/json',
           responseSchema: {
@@ -132,13 +189,13 @@ export default function MovieRenamer({ onBack }: { onBack: () => void }) {
                 items: {
                   type: Type.OBJECT,
                   properties: {
-                    originalName: { type: Type.STRING, description: "The exact original filename provided." },
-                    cleanTitle: { type: Type.STRING, description: "The cleaned, human-readable movie title with spaces and proper capitalization." },
-                    year: { type: Type.STRING, description: "The release year (e.g., '1999'). Guess it if missing from filename but movie is known." },
-                    originalTitle: { type: Type.STRING, description: "The original title of the movie (e.g., English title if the filename is translated). Empty string if same or unknown." },
-                    director: { type: Type.STRING, description: "The director of the movie, if present in the filename or if you know it. Empty string if unknown." },
-                    actors: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of actors mentioned in the filename or main cast if known. Empty array if none." },
-                    edition: { type: Type.STRING, description: "Specific edition details (e.g., 'Director\\'s Cut', 'Extended Edition', 'Remastered'), if present. Empty string if unknown." }
+                    originalName: { type: Type.STRING },
+                    cleanTitle: { type: Type.STRING },
+                    year: { type: Type.STRING },
+                    originalTitle: { type: Type.STRING },
+                    director: { type: Type.STRING },
+                    actors: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    edition: { type: Type.STRING }
                   },
                   required: ["originalName", "cleanTitle", "year"]
                 }
@@ -149,15 +206,16 @@ export default function MovieRenamer({ onBack }: { onBack: () => void }) {
         }
       });
 
-      if (response.text) {
+      const responseText = response.text;
+      if (responseText) {
         try {
-          const parsed = JSON.parse(response.text);
+          const parsed = JSON.parse(responseText);
           if (!parsed.results || !Array.isArray(parsed.results)) {
             throw new Error("Formato JSON non valido: array 'results' mancante.");
           }
           aiData = parsed.results;
         } catch (parseErr) {
-          console.error("JSON Parse Error:", parseErr, response.text);
+          console.error("JSON Parse Error:", parseErr, responseText);
           setError("L'Intelligenza Artificiale ha restituito dati in un formato non leggibile. Prova a riavviare l'analisi o a selezionare meno file alla volta.");
           setLoading(false);
           return;
@@ -170,18 +228,40 @@ export default function MovieRenamer({ onBack }: { onBack: () => void }) {
     } catch (err: any) {
       console.error("API Error:", err);
       let errorMessage = "Errore sconosciuto durante l'analisi. Riprova tra poco.";
+      let diagnostic = "";
       
-      if (err.status === 429 || err.message?.includes('429') || err.message?.toLowerCase().includes('quota')) {
-        errorMessage = "Hai superato il limite di richieste all'IA. Attendi qualche minuto e riprova.";
+      if (err.message?.startsWith('API_KEY_MISSING')) {
+        const parts = err.message.split('|');
+        const varName = parts[1] || "Sconosciuta";
+        const varValue = parts[2] || "null";
+        errorMessage = `CHIAVE MANCANTE: La variabile '${varName}' sembra non essere configurata correttamente.`;
+        diagnostic = `Variabile rilevata: ${varName} (${varValue})`;
+      } else if (err.status === 429 || err.message?.includes('429') || err.message?.toLowerCase().includes('quota')) {
+        errorMessage = "LIMITE RAGGIUNTO: Hai superato la quota gratuita. Attendi un minuto e riprova.";
       } else if (err.status === 401 || err.status === 403 || err.message?.toLowerCase().includes('api key')) {
-        errorMessage = "Problema di autenticazione con l'IA. Verifica che la chiave API sia configurata correttamente.";
+        errorMessage = "CHIAVE NON VALIDA: La chiave API inserita nei Settings non è corretta o non ha i permessi per Gemini API.";
       } else if (err.message?.toLowerCase().includes('fetch') || err.message?.toLowerCase().includes('network')) {
         errorMessage = "Errore di rete. Controlla la tua connessione internet e riprova.";
       } else if (err.message) {
         errorMessage = `Errore durante l'analisi: ${err.message}`;
       }
 
-      setError(errorMessage);
+      setError(
+        <div className="space-y-3">
+          <p>{errorMessage}</p>
+          <div className="mt-4 p-3 bg-blue-900/30 border border-blue-500/30 rounded-lg text-xs font-mono text-blue-200">
+            <p className="font-bold mb-1 flex items-center gap-2">
+              <ShieldAlert className="w-3 h-3" /> Diagnosi Sistema:
+            </p>
+            <p>Stato Variabile: <span className="text-white font-bold">{getApiKeyStatus()}</span></p>
+            {diagnostic && <p>Dettaglio: <span className="text-white">{diagnostic}</span></p>}
+            <p className="mt-2 text-[10px] opacity-70 italic">
+              Se lo stato è NOT_FOUND, la chiave non è stata salvata correttamente nel menu Secrets.
+              Se è PLACEHOLDER, la chiave inserita non sembra valida.
+            </p>
+          </div>
+        </div>
+      );
       setLoading(false);
       return;
     }
@@ -609,10 +689,34 @@ export default function MovieRenamer({ onBack }: { onBack: () => void }) {
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
-              className="bg-red-950/30 border border-red-900/50 text-red-400 p-4 rounded-xl flex items-center gap-3"
+              className={`${isSecurityError ? 'bg-purple-900/40 border-purple-500/50' : 'bg-red-950/30 border-red-900/50'} border text-white p-6 rounded-2xl flex flex-col md:flex-row items-center gap-6 mb-6 shadow-2xl`}
             >
-              <AlertCircle className="w-5 h-5 flex-shrink-0" />
-              <p>{error}</p>
+              <div className="flex items-center gap-4 flex-1">
+                <AlertCircle className={`w-8 h-8 flex-shrink-0 ${isSecurityError ? 'text-purple-400' : 'text-red-400'}`} />
+                <div>
+                  <p className="font-bold text-lg">{isSecurityError ? 'Funzione Bloccata dall\'Anteprima' : 'Errore'}</p>
+                  <p className="text-sm text-neutral-300">{error}</p>
+                  
+                  {error.includes("CHIAVE") && (
+                    <div className="mt-4 p-3 bg-black/40 rounded-xl border border-white/10 text-xs font-mono space-y-2">
+                      <div className="flex items-center gap-2 text-blue-400">
+                        <ShieldAlert className="w-3 h-3" />
+                        <span>Diagnosi Sistema:</span>
+                      </div>
+                      <p className="text-neutral-400">Stato Variabile: <span className="text-white">{getApiKeyStatus()}</span></p>
+                      <p className="text-neutral-500 italic">Se lo stato è NOT_FOUND, la chiave non è stata salvata correttamente nel menu Settings.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+              {isSecurityError && (
+                <button 
+                  onClick={() => window.open(window.location.href, '_blank')}
+                  className="w-full md:w-auto px-6 py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-xl font-bold transition-all shadow-lg shadow-purple-500/30 whitespace-nowrap"
+                >
+                  SBLOCCA ORA
+                </button>
+              )}
             </motion.div>
           )}
         </AnimatePresence>

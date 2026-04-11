@@ -40,29 +40,35 @@ export default function Manual({ onBack }: { onBack: () => void }) {
               Il <strong>Movie Renamer</strong> utilizza l'Intelligenza Artificiale per analizzare i nomi dei file video disordinati (es. <code className="bg-neutral-900 print:bg-gray-100 px-1 rounded text-sm">Il.Gladiatore.1080p.ITA.ENG.mkv</code>) e trasformarli in formati puliti e standardizzati (es. <code className="bg-neutral-900 print:bg-gray-100 px-1 rounded text-sm">Il Gladiatore (2000).mkv</code>).
             </p>
             <ul className="list-disc pl-6 space-y-2">
-              <li><strong>Seleziona Cartella:</strong> Clicca per scegliere la cartella contenente i tuoi film.</li>
+              <li><strong>Seleziona Cartella:</strong> Clicca per scegliere la cartella contenente i tuoi film. Il browser ti chiederà il permesso di accedere alla cartella (File System Access API).</li>
               <li><strong>Analizza:</strong> L'IA leggerà i nomi, rimuoverà le etichette tecniche (risoluzione, codec, lingua) e cercherà di dedurre l'anno di uscita se mancante.</li>
               <li><strong>Risoluzione Conflitti:</strong> Se due file ottengono lo stesso nome, l'app ti avviserà.</li>
-              <li><strong>Genera Script:</strong> L'app non rinomina i file direttamente per sicurezza. Genera invece uno script (.bat per Windows o .sh per Mac/Linux). Scarica lo script, mettilo nella cartella dei film e avvialo con un doppio clic.</li>
+              <li><strong>Rinomina Diretta:</strong> Cliccando su "Applica Rinomina Ora", l'app rinominerà i file <strong>direttamente sul tuo hard disk</strong> in modo istantaneo, senza bisogno di script esterni!</li>
             </ul>
           </section>
 
           <section className="space-y-4">
-            <h3 className="text-2xl font-bold text-white print:text-black border-l-4 border-emerald-500 pl-4">2. Edit Metadata & FFmpeg</h3>
+            <h3 className="text-2xl font-bold text-white print:text-black border-l-4 border-emerald-500 pl-4">2. Edit Metadata</h3>
             <p className="leading-relaxed">
-              La sezione <strong>Edit Metadata</strong> ti permette di scaricare informazioni dettagliate (trama, attori, locandina) e iniettarle nei tuoi file.
+              La sezione <strong>Edit Metadata</strong> ti permette di scaricare informazioni dettagliate (trama, attori, locandina) e salvarle direttamente accanto ai tuoi film.
             </p>
             <ul className="list-disc pl-6 space-y-2">
+              <li><strong>Seleziona Cartella e Video:</strong> Scegli la cartella e seleziona il video dal menu a tendina.</li>
               <li><strong>Ricerca IA:</strong> Inserisci il titolo e clicca "Cerca Metadati con IA". L'IA compilerà automaticamente i campi in Italiano o Inglese.</li>
-              <li><strong>Locandina:</strong> Usa la lente d'ingrandimento sull'immagine per cercare una locandina su Google. Salvala sul PC e caricala premendo l'icona di upload.</li>
-              <li><strong>Salvataggio:</strong> Cliccando "Save Metadata", scaricherai 3 file:
-                <ol className="list-decimal pl-6 mt-2 space-y-1 text-sm text-neutral-400 print:text-gray-700">
-                  <li>Un file <strong>.nfo</strong> (standard per Kodi, Plex, Emby).</li>
-                  <li>La <strong>locandina</strong> (poster.jpg).</li>
-                  <li>Uno script <strong>embed_metadata.bat</strong>.</li>
-                </ol>
-              </li>
-              <li><strong>Come iniettare i dati nel video:</strong> Assicurati di avere <a href="https://ffmpeg.org/download.html" target="_blank" rel="noreferrer" className="text-blue-400 underline">FFmpeg</a> installato sul tuo PC. Metti il video originale, il poster.jpg e lo script .bat nella stessa cartella. Fai doppio clic sul .bat: verrà creata una copia del video con locandina e metadati incorporati!</li>
+              <li><strong>Locandina:</strong> Usa l'icona di upload per caricare una locandina dal tuo PC.</li>
+              <li><strong>Salvataggio Diretto:</strong> Cliccando "Save Metadata", l'app creerà automaticamente il file <strong>.nfo</strong> e salverà la <strong>locandina</strong> (poster.jpg) direttamente nella cartella del film sul tuo PC.</li>
+            </ul>
+          </section>
+
+          <section className="space-y-4">
+            <h3 className="text-2xl font-bold text-white print:text-black border-l-4 border-purple-500 pl-4">3. Movie Catalog</h3>
+            <p className="leading-relaxed">
+              Il <strong>Movie Catalog</strong> è la tua dashboard personale in stile Netflix.
+            </p>
+            <ul className="list-disc pl-6 space-y-2">
+              <li><strong>Carica Libreria:</strong> Seleziona la cartella principale dove tieni i tuoi film.</li>
+              <li><strong>Scansione:</strong> L'app cercherà automaticamente i file video, leggerà i file .nfo e le locandine che hai creato con l'Edit Metadata.</li>
+              <li><strong>Visualizzazione:</strong> Goditi la tua collezione in una bellissima griglia visiva. Clicca su una locandina per leggere trama, cast e dettagli.</li>
             </ul>
           </section>
 

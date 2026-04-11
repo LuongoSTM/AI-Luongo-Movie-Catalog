@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { Film, Wand2, Library, ArrowRight, FileEdit, BookOpen } from 'lucide-react';
 import MovieRenamer from './MovieRenamer';
 import MetadataEditor from './MetadataEditor';
+import MovieCatalog from './MovieCatalog';
 import Manual from './Manual';
 
 const CustomLogo = ({ className }: { className?: string }) => (
@@ -44,6 +45,10 @@ export default function App() {
 
   if (view === 'renamer') {
     return <MovieRenamer onBack={() => setView('home')} />;
+  }
+  
+  if (view === 'catalog') {
+    return <MovieCatalog onBack={() => setView('home')} />;
   }
   
   if (view === 'metadata') {
@@ -135,23 +140,20 @@ export default function App() {
           <motion.button
             whileHover={{ scale: 1.02, y: -4 }}
             whileTap={{ scale: 0.98 }}
-            onClick={() => {}}
-            className="group relative text-left bg-neutral-900/20 backdrop-blur-xl border border-neutral-800/50 p-8 rounded-3xl transition-all duration-300 overflow-hidden shadow-xl cursor-not-allowed"
+            onClick={() => setView('catalog')}
+            className="group relative text-left bg-neutral-900/40 hover:bg-neutral-800/60 backdrop-blur-xl border border-neutral-800 hover:border-purple-500/50 p-8 rounded-3xl transition-all duration-300 overflow-hidden shadow-xl"
           >
-            <div className="absolute top-6 right-6 z-20">
-              <span className="bg-purple-500/10 text-purple-400 text-xs font-bold px-3 py-1.5 rounded-full border border-purple-500/20 shadow-[0_0_15px_rgba(168,85,247,0.2)] uppercase tracking-wider">
-                In Arrivo
-              </span>
-            </div>
-            <div className="relative z-10 opacity-50 group-hover:opacity-70 transition-opacity duration-300">
-              <div className="w-16 h-16 rounded-2xl bg-purple-500/10 flex items-center justify-center mb-6 border border-purple-500/20 shadow-[0_0_30px_rgba(168,85,247,0.1)]">
+            <div className="absolute inset-0 bg-gradient-to-br from-purple-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+            <div className="relative z-10">
+              <div className="w-16 h-16 rounded-2xl bg-purple-500/10 flex items-center justify-center mb-6 border border-purple-500/20 group-hover:bg-purple-500/20 group-hover:border-purple-500/40 transition-all duration-300 shadow-[0_0_30px_rgba(168,85,247,0.1)]">
                 <Library className="w-8 h-8 text-purple-400" />
               </div>
               <h2 className="text-2xl font-bold text-white mb-3 flex items-center justify-between">
                 Movie Catalog
+                <ArrowRight className="w-6 h-6 text-neutral-600 group-hover:text-purple-400 transition-colors transform group-hover:translate-x-2" />
               </h2>
               <p className="text-neutral-400 leading-relaxed text-sm md:text-base">
-                Organizza, esplora e gestisci la tua collezione. Scarica locandine, trame e dettagli in un'interfaccia elegante e moderna.
+                Esplora la tua collezione in una dashboard visiva in stile Netflix. Legge automaticamente i file .nfo e le locandine salvate sul tuo PC.
               </p>
             </div>
           </motion.button>
