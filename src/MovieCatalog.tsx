@@ -20,12 +20,14 @@ interface Movie {
   posterUrl?: string;
   videoFileHandle: any;
   videoFileName: string;
+  lastModified: number;
 }
 
 const VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v'];
 
 export default function MovieCatalog({ onBack }: { onBack: () => void }) {
   const [movies, setMovies] = useState<Movie[]>([]);
+  const [recentMovies, setRecentMovies] = useState<Movie[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [isIframe, setIsIframe] = useState(false);
@@ -78,11 +80,14 @@ export default function MovieCatalog({ onBack }: { onBack: () => void }) {
           
           if (VIDEO_EXTENSIONS.some(ext => lowerName.endsWith(ext))) {
             const baseName = name.substring(0, name.lastIndexOf('.'));
+            const fileData = await (entry as FileSystemFileHandle).getFile();
+            
             let movieData: Partial<Movie> = {
               id: path + name,
               videoFileName: name,
               videoFileHandle: entry,
-              title: baseName // Fallback title
+              title: baseName, // Fallback title
+              lastModified: fileData.lastModified
             };
 
             // Try to find NFO
@@ -138,8 +143,12 @@ export default function MovieCatalog({ onBack }: { onBack: () => void }) {
       
       // Sort alphabetically
       scannedMovies.sort((a, b) => a.title.localeCompare(b.title));
-      
       setMovies(scannedMovies);
+
+      // Get recently added (top 10)
+      const recent = [...scannedMovies].sort((a, b) => b.lastModified - a.lastModified).slice(0, 10);
+      setRecentMovies(recent);
+      
       if (scannedMovies.length === 0) {
         setError("Nessun file video trovato nella cartella selezionata.");
       }
@@ -238,34 +247,80 @@ export default function MovieCatalog({ onBack }: { onBack: () => void }) {
             <p className="max-w-md text-center">Clicca su "Carica Libreria" e seleziona la cartella principale dei tuoi film. L'app cercherà automaticamente i video, le locandine e i file .nfo.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
-            {filteredMovies.map((movie) => (
-              <motion.div 
-                key={movie.id}
-                layoutId={`movie-${movie.id}`}
-                onClick={() => setSelectedMovie(movie)}
-                className="group cursor-pointer flex flex-col gap-3"
-              >
-                <div className="relative aspect-[2/3] rounded-xl overflow-hidden bg-neutral-900 border border-neutral-800 shadow-lg">
-                  {movie.posterUrl ? (
-                    <img src={movie.posterUrl} alt={movie.title} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-neutral-700">
-                      <Film className="w-12 h-12" />
-                    </div>
-                  )}
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/0 to-black/0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end p-4">
-                    <div className="w-10 h-10 rounded-full bg-purple-600 flex items-center justify-center text-white transform translate-y-4 group-hover:translate-y-0 transition-transform duration-300 shadow-lg">
-                      <Info className="w-5 h-5" />
-                    </div>
+          <div className="space-y-12">
+            {/* Recently Added Section */}
+            {recentMovies.length > 0 && !searchQuery && (
+              <section>
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="p-2 bg-purple-600/20 rounded-lg">
+                    <Clock className="w-5 h-5 text-purple-400" />
                   </div>
+                  <h2 className="text-xl font-bold text-white">Aggiunti di Recente</h2>
                 </div>
-                <div>
-                  <h3 className="font-bold text-sm text-neutral-200 truncate group-hover:text-purple-400 transition-colors">{movie.title}</h3>
-                  <p className="text-xs text-neutral-500">{movie.year || 'Anno sconosciuto'}</p>
+                <div className="flex gap-6 overflow-x-auto pb-6 scrollbar-hide snap-x">
+                  {recentMovies.map((movie) => (
+                    <motion.div 
+                      key={`recent-${movie.id}`}
+                      whileHover={{ scale: 1.05 }}
+                      onClick={() => setSelectedMovie(movie)}
+                      className="flex-none w-40 md:w-48 cursor-pointer snap-start"
+                    >
+                      <div className="relative aspect-[2/3] rounded-xl overflow-hidden bg-neutral-900 border border-neutral-800 shadow-lg mb-2">
+                        {movie.posterUrl ? (
+                          <img src={movie.posterUrl} alt={movie.title} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-neutral-700">
+                            <Film className="w-10 h-10" />
+                          </div>
+                        )}
+                      </div>
+                      <h3 className="font-bold text-xs text-neutral-200 truncate">{movie.title}</h3>
+                    </motion.div>
+                  ))}
                 </div>
-              </motion.div>
-            ))}
+              </section>
+            )}
+
+            {/* All Movies Grid */}
+            <section>
+              <div className="flex items-center gap-3 mb-6">
+                <div className="p-2 bg-blue-600/20 rounded-lg">
+                  <Library className="w-5 h-5 text-blue-400" />
+                </div>
+                <h2 className="text-xl font-bold text-white">
+                  {searchQuery ? `Risultati per "${searchQuery}"` : 'Tutti i Film'}
+                </h2>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+                {filteredMovies.map((movie) => (
+                  <motion.div 
+                    key={movie.id}
+                    layoutId={`movie-${movie.id}`}
+                    onClick={() => setSelectedMovie(movie)}
+                    className="group cursor-pointer flex flex-col gap-3"
+                  >
+                    <div className="relative aspect-[2/3] rounded-xl overflow-hidden bg-neutral-900 border border-neutral-800 shadow-lg">
+                      {movie.posterUrl ? (
+                        <img src={movie.posterUrl} alt={movie.title} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-neutral-700">
+                          <Film className="w-12 h-12" />
+                        </div>
+                      )}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/0 to-black/0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end p-4">
+                        <div className="w-10 h-10 rounded-full bg-purple-600 flex items-center justify-center text-white transform translate-y-4 group-hover:translate-y-0 transition-transform duration-300 shadow-lg">
+                          <Info className="w-5 h-5" />
+                        </div>
+                      </div>
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-sm text-neutral-200 truncate group-hover:text-purple-400 transition-colors">{movie.title}</h3>
+                      <p className="text-xs text-neutral-500">{movie.year || 'Anno sconosciuto'}</p>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            </section>
           </div>
         )}
       </div>

@@ -26,6 +26,7 @@ export default function MetadataEditor({ onBack }: MetadataEditorProps) {
   const [isSecurityError, setIsSecurityError] = useState(false);
   const [isIframe, setIsIframe] = useState(false);
   const [bulkLoading, setBulkLoading] = useState(false);
+  const [bulkPosterLoading, setBulkPosterLoading] = useState(false);
   const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0, lastFile: '' });
   
   const parseNfo = (xmlText: string) => {
@@ -102,6 +103,79 @@ export default function MetadataEditor({ onBack }: MetadataEditorProps) {
       console.error("Error scanning directory:", e);
     }
     return foundFiles;
+  };
+
+  const handleBulkPosters = async () => {
+    if (videoFiles.length === 0) {
+      alert("Nessun file video caricato.");
+      return;
+    }
+
+    const confirmBulk = window.confirm(`Stai per cercare e scaricare le locandine per tutti i ${videoFiles.length} film. L'IA cercherà i link diretti alle immagini. Nota: Alcuni download potrebbero fallire per restrizioni di sicurezza (CORS). Continuare?`);
+    if (!confirmBulk) return;
+
+    setBulkPosterLoading(true);
+    setBulkProgress({ current: 0, total: videoFiles.length, lastFile: '' });
+
+    try {
+      for (let i = 0; i < videoFiles.length; i++) {
+        const video = videoFiles[i];
+        setBulkProgress(prev => ({ ...prev, current: i + 1, lastFile: video.name }));
+
+        try {
+          const baseName = video.name.substring(0, video.name.lastIndexOf('.'));
+          
+          // 1. Check if poster already exists
+          const posterExtensions = ['.jpg', '.jpeg', '.png', '.webp'];
+          const posterNames = [`${baseName}-poster`, 'poster', 'folder'];
+          let exists = false;
+          for (const pName of posterNames) {
+            for (const ext of posterExtensions) {
+              try {
+                await video.parentHandle.getFileHandle(`${pName}${ext}`);
+                exists = true;
+                break;
+              } catch { continue; }
+            }
+            if (exists) break;
+          }
+          if (exists) continue;
+
+          // 2. Ask AI for a poster URL
+          const prompt = `Find a direct, public, high-quality image URL for the movie poster of "${baseName}". Respond ONLY with a JSON object: {"posterUrl": "URL"}. Use reliable sources like TMDB.`;
+          
+          const ai = getGenAI();
+          const result = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            config: { responseMimeType: "application/json" }
+          });
+
+          const responseText = result.text;
+          if (responseText) {
+            const data = JSON.parse(responseText);
+            if (data.posterUrl) {
+              // 3. Attempt to download and save
+              const response = await fetch(data.posterUrl);
+              const blob = await response.blob();
+              
+              const posterHandle = await video.parentHandle.getFileHandle(`${baseName}-poster.jpg`, { create: true });
+              const pWritable = await posterHandle.createWritable();
+              await pWritable.write(blob);
+              await pWritable.close();
+            }
+          }
+          await new Promise(resolve => setTimeout(resolve, 800));
+        } catch (err) {
+          console.error(`Errore poster bulk per ${video.name}:`, err);
+        }
+      }
+      alert("Download Bulk Locandine completato!");
+    } catch (error) {
+      console.error("Errore generale Bulk Posters:", error);
+    } finally {
+      setBulkPosterLoading(false);
+    }
   };
 
   const handleFolderSelect = async () => {
@@ -439,6 +513,7 @@ export default function MetadataEditor({ onBack }: MetadataEditorProps) {
             - screenwriters (Name)
             - tagline (Short phrase)
             - description (Detailed plot summary)
+            - posterUrl (A direct public URL to a high-quality movie poster image, preferably from a CDN like tmdb.org or similar)
           `;
 
           const ai = getGenAI();
@@ -451,7 +526,7 @@ export default function MetadataEditor({ onBack }: MetadataEditorProps) {
           const responseText = result.text;
           if (responseText) {
             const data = JSON.parse(responseText);
-            // 3. Save NFO (No poster in bulk)
+            // 3. Save NFO (No poster in bulk unless specified)
             await saveNfoAndPoster(video, {
               ...data,
               contentRating: 'No Rating',
@@ -656,30 +731,45 @@ export default function MetadataEditor({ onBack }: MetadataEditorProps) {
 
             {videoFiles.length > 0 && (
               <div className="flex flex-col gap-2 pl-[5.5rem]">
-                <button 
-                  onClick={handleBulkGenerate}
-                  disabled={bulkLoading || loading}
-                  className="w-full py-2 bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 rounded-lg hover:bg-indigo-600/30 transition-all flex items-center justify-center gap-2 font-bold text-xs"
-                >
-                  {bulkLoading ? (
-                    <div className="w-3 h-3 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
-                  ) : (
-                    <Sparkles className="w-4 h-4" />
-                  )}
-                  {bulkLoading ? 'Generazione Bulk in corso...' : `Genera Metadati per TUTTI (${videoFiles.length} file)`}
-                </button>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  <button 
+                    onClick={handleBulkGenerate}
+                    disabled={bulkLoading || bulkPosterLoading || loading}
+                    className="py-2 bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 rounded-lg hover:bg-indigo-600/30 transition-all flex items-center justify-center gap-2 font-bold text-xs"
+                  >
+                    {bulkLoading ? (
+                      <div className="w-3 h-3 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <Sparkles className="w-4 h-4" />
+                    )}
+                    {bulkLoading ? 'Bulk NFO...' : `Genera NFO (${videoFiles.length})`}
+                  </button>
+
+                  <button 
+                    onClick={handleBulkPosters}
+                    disabled={bulkLoading || bulkPosterLoading || loading}
+                    className="py-2 bg-purple-600/20 text-purple-400 border border-purple-500/30 rounded-lg hover:bg-purple-600/30 transition-all flex items-center justify-center gap-2 font-bold text-xs"
+                  >
+                    {bulkPosterLoading ? (
+                      <div className="w-3 h-3 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <ImageIcon className="w-4 h-4" />
+                    )}
+                    {bulkPosterLoading ? 'Bulk Posters...' : `Scarica Locandine (${videoFiles.length})`}
+                  </button>
+                </div>
                 
-                {bulkLoading && (
+                {(bulkLoading || bulkPosterLoading) && (
                   <div className="space-y-1">
                     <div className="h-1.5 w-full bg-neutral-800 rounded-full overflow-hidden">
                       <motion.div 
-                        className="h-full bg-indigo-500"
+                        className={`h-full ${bulkLoading ? 'bg-indigo-500' : 'bg-purple-500'}`}
                         initial={{ width: 0 }}
                         animate={{ width: `${(bulkProgress.current / bulkProgress.total) * 100}%` }}
                       />
                     </div>
                     <p className="text-[10px] text-neutral-500 flex justify-between">
-                      <span>Elaborazione: {bulkProgress.lastFile}</span>
+                      <span>{bulkLoading ? 'NFO' : 'Poster'}: {bulkProgress.lastFile}</span>
                       <span>{bulkProgress.current} / {bulkProgress.total}</span>
                     </p>
                   </div>
