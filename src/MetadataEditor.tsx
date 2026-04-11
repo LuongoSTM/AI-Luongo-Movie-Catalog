@@ -1,6 +1,6 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { ArrowLeft, Image as ImageIcon, Search, Save, X, FolderOpen, Edit2, Upload, FileVideo, AlertCircle, ShieldAlert } from 'lucide-react';
+import { ArrowLeft, Image as ImageIcon, Search, Save, X, FolderOpen, Edit2, Upload, FileVideo, AlertCircle, ShieldAlert, Sparkles, Info } from 'lucide-react';
 import { Type } from '@google/genai';
 import { getGenAI, getApiKeyStatus } from './lib/gemini';
 import { Logo } from './components/Logo';
@@ -24,7 +24,30 @@ export default function MetadataEditor({ onBack }: MetadataEditorProps) {
   
   const [error, setError] = useState('');
   const [isSecurityError, setIsSecurityError] = useState(false);
+  const [isIframe, setIsIframe] = useState(false);
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0, lastFile: '' });
   
+  const parseNfo = (xmlText: string) => {
+    const parser = new DOMParser();
+    const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+    
+    const getText = (tag: string) => {
+      const node = xmlDoc.getElementsByTagName(tag)[0];
+      return node ? node.textContent || '' : '';
+    };
+
+    return {
+      name: getText('title'),
+      releaseDate: getText('year') || getText('premiered')?.substring(0, 10),
+      description: getText('plot'),
+      genre: getText('genre'),
+      director: getText('director'),
+      actors: Array.from(xmlDoc.getElementsByTagName('actor')).map(a => a.getElementsByTagName('name')[0]?.textContent || '').filter(Boolean).join(', '),
+      tagline: getText('tagline'),
+    };
+  };
+
   // Form State
   const [formData, setFormData] = useState({
     type: 'Movies',
@@ -45,6 +68,10 @@ export default function MetadataEditor({ onBack }: MetadataEditorProps) {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const posterInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setIsIframe(window.self !== window.top);
+  }, []);
 
   const scanDirectoryForVideos = async (dirHandle: any, path = '', depth = 0): Promise<{name: string, handle: any, parentHandle: any, path: string}[]> => {
     if (depth > 4) return []; // Limite di profondità per evitare blocchi
@@ -110,10 +137,67 @@ export default function MetadataEditor({ onBack }: MetadataEditorProps) {
     }
   };
 
-  const handleVideoSelect = (video: {name: string, handle: any, parentHandle: any, path: string}) => {
+  const handleVideoSelect = async (video: {name: string, handle: any, parentHandle: any, path: string}) => {
     setSelectedVideo(video);
-    const nameWithoutExt = video.name.substring(0, video.name.lastIndexOf('.'));
-    setFormData(prev => ({ ...prev, name: nameWithoutExt }));
+    setLoading(true);
+    const baseName = video.name.substring(0, video.name.lastIndexOf('.'));
+    
+    // Reset form with default name
+    setFormData(prev => ({ 
+      ...prev, 
+      name: baseName,
+      description: '',
+      genre: '',
+      director: '',
+      actors: '',
+      tagline: '',
+      releaseDate: '',
+      comments: ''
+    }));
+    setPosterUrl(null);
+
+    try {
+      // 1. Cerca file NFO
+      let nfoHandle;
+      try { nfoHandle = await video.parentHandle.getFileHandle(`${baseName}.nfo`); }
+      catch { 
+        try { nfoHandle = await video.parentHandle.getFileHandle(`movie.nfo`); }
+        catch { /* No NFO */ }
+      }
+
+      if (nfoHandle) {
+        const file = await nfoHandle.getFile();
+        const text = await file.text();
+        const nfoData = parseNfo(text);
+        setFormData(prev => ({ 
+          ...prev, 
+          ...nfoData,
+          name: nfoData.name || baseName 
+        }));
+      }
+
+      // 2. Cerca Poster
+      const posterExtensions = ['.jpg', '.jpeg', '.png', '.webp'];
+      const posterNames = [`${baseName}-poster`, 'poster', 'folder', baseName];
+      
+      let foundPoster = false;
+      for (const pName of posterNames) {
+        for (const ext of posterExtensions) {
+          try {
+            const pHandle = await video.parentHandle.getFileHandle(`${pName}${ext}`);
+            const pFile = await pHandle.getFile();
+            setPosterUrl(URL.createObjectURL(pFile));
+            foundPoster = true;
+            break;
+          } catch { continue; }
+        }
+        if (foundPoster) break;
+      }
+    } catch (e) {
+      console.error("Errore caricamento metadati esistenti:", e);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handlePosterSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -246,47 +330,8 @@ export default function MetadataEditor({ onBack }: MetadataEditorProps) {
 
     setLoading(true);
     try {
-      const baseName = selectedVideo.name.substring(0, selectedVideo.name.lastIndexOf('.'));
-      const targetDirHandle = selectedVideo.parentHandle;
-      
-      // Generate NFO content
-      const nfoContent = `<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
-<movie>
-  <title>${formData.name}</title>
-  <originaltitle>${formData.name}</originaltitle>
-  <sorttitle>${formData.name}</sorttitle>
-  <year>${formData.releaseDate ? formData.releaseDate.substring(0, 4) : ''}</year>
-  <premiered>${formData.releaseDate}</premiered>
-  <releasedate>${formData.releaseDate}</releasedate>
-  <plot>${formData.description}</plot>
-  <tagline>${formData.tagline}</tagline>
-  <genre>${formData.genre}</genre>
-  <director>${formData.director}</director>
-  <credits>${formData.screenwriters}</credits>
-  <mpaa>${formData.contentRating}</mpaa>
-  <actor>
-    ${formData.actors.split(',').map(actor => `<name>${actor.trim()}</name>`).join('\n    ')}
-  </actor>
-</movie>`;
-
-      // Save NFO directly
-      const nfoHandle = await targetDirHandle.getFileHandle(`${baseName}.nfo`, { create: true });
-      const nfoWritable = await nfoHandle.createWritable();
-      await nfoWritable.write(nfoContent);
-      await nfoWritable.close();
-
-      // Save Poster directly if exists
-      if (posterUrl) {
-        const response = await fetch(posterUrl);
-        const blob = await response.blob();
-        
-        const posterHandle = await targetDirHandle.getFileHandle(`${baseName}-poster.jpg`, { create: true });
-        const pWritable = await posterHandle.createWritable();
-        await pWritable.write(blob);
-        await pWritable.close();
-      }
-
-      alert("Metadati e locandina salvati con successo nella cartella del film!");
+      await saveNfoAndPoster(selectedVideo, formData, posterUrl);
+      alert("Metadati (.nfo) e Locandine (.jpg) salvati con successo!\n\nNota: Questi file sono lo standard per Plex/Kodi. Mantenerli nella stessa cartella del film permette a tutti i lettori di leggere le info istantaneamente.");
     } catch (error) {
       console.error("Errore salvataggio:", error);
       alert("Si è verificato un errore durante il salvataggio. Assicurati di aver concesso i permessi alla cartella.");
@@ -295,8 +340,161 @@ export default function MetadataEditor({ onBack }: MetadataEditorProps) {
     }
   };
 
+  const saveNfoAndPoster = async (video: any, data: any, pUrl: string | null) => {
+    const baseName = video.name.substring(0, video.name.lastIndexOf('.'));
+    const targetDirHandle = video.parentHandle;
+    
+    // Generate NFO content
+    const nfoContent = `<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<movie>
+  <title>${data.name}</title>
+  <originaltitle>${data.name}</originaltitle>
+  <sorttitle>${data.name}</sorttitle>
+  <year>${data.releaseDate ? data.releaseDate.substring(0, 4) : ''}</year>
+  <premiered>${data.releaseDate}</premiered>
+  <releasedate>${data.releaseDate}</releasedate>
+  <plot>${data.description}</plot>
+  <tagline>${data.tagline}</tagline>
+  <genre>${data.genre}</genre>
+  <director>${data.director}</director>
+  <credits>${data.screenwriters}</credits>
+  <mpaa>${data.contentRating}</mpaa>
+  <actor>
+    ${data.actors.split(',').map((actor: string) => `<name>${actor.trim()}</name>`).join('\n    ')}
+  </actor>
+</movie>`;
+
+    // Save NFO directly
+    const nfoHandle = await targetDirHandle.getFileHandle(`${baseName}.nfo`, { create: true });
+    const nfoWritable = await nfoHandle.createWritable();
+    await nfoWritable.write(nfoContent);
+    await nfoWritable.close();
+
+    // Save Poster directly if exists
+    if (pUrl) {
+      try {
+        const response = await fetch(pUrl);
+        const blob = await response.blob();
+        
+        // Save with multiple names for maximum compatibility with Plex/Kodi/Jellyfin
+        const posterNames = [`${baseName}-poster.jpg`, `poster.jpg`, `folder.jpg`];
+        
+        for (const pName of posterNames) {
+          try {
+            const posterHandle = await targetDirHandle.getFileHandle(pName, { create: true });
+            const pWritable = await posterHandle.createWritable();
+            await pWritable.write(blob);
+            await pWritable.close();
+          } catch (e) {
+            console.error(`Errore salvataggio poster ${pName}:`, e);
+          }
+        }
+      } catch (e) {
+        console.error("Errore fetch poster:", e);
+      }
+    }
+  };
+
+  const handleBulkGenerate = async () => {
+    if (videoFiles.length === 0) {
+      alert("Nessun file video caricato.");
+      return;
+    }
+
+    const confirmBulk = window.confirm(`Stai per generare i metadati (.nfo) per tutti i ${videoFiles.length} film nella lista. L'operazione userà l'IA per ogni file. Continuare?`);
+    if (!confirmBulk) return;
+
+    setBulkLoading(true);
+    setBulkProgress({ current: 0, total: videoFiles.length, lastFile: '' });
+
+    try {
+      for (let i = 0; i < videoFiles.length; i++) {
+        const video = videoFiles[i];
+        setBulkProgress(prev => ({ ...prev, current: i + 1, lastFile: video.name }));
+
+        try {
+          const baseName = video.name.substring(0, video.name.lastIndexOf('.'));
+          
+          // 1. Check if NFO already exists
+          try {
+            await video.parentHandle.getFileHandle(`${baseName}.nfo`);
+            continue; // Skip if exists
+          } catch { /* Doesn't exist, proceed */ }
+
+          // 2. Fetch metadata with AI
+          const prompt = `
+            Act as an expert movie database API. I will give you a movie or TV show title.
+            Extract and provide the following metadata in JSON format. 
+            
+            CRITICAL INSTRUCTION: You MUST provide the 'description', 'tagline', and 'genre' strictly in ${formData.language}.
+            
+            Title to search: "${baseName}"
+            
+            Respond ONLY with a valid JSON object with these keys:
+            - name (Cleaned original title)
+            - releaseDate (YYYY-MM-DD)
+            - genre (Comma separated)
+            - actors (Comma separated list)
+            - director (Name)
+            - screenwriters (Name)
+            - tagline (Short phrase)
+            - description (Detailed plot summary)
+          `;
+
+          const ai = getGenAI();
+          const result = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            config: { responseMimeType: "application/json" }
+          });
+
+          const responseText = result.text;
+          if (responseText) {
+            const data = JSON.parse(responseText);
+            // 3. Save NFO (No poster in bulk)
+            await saveNfoAndPoster(video, {
+              ...data,
+              contentRating: 'No Rating',
+              screenwriters: data.screenwriters || ''
+            }, null);
+          }
+          
+          // Small delay to avoid rate limits
+          await new Promise(resolve => setTimeout(resolve, 500));
+        } catch (err) {
+          console.error(`Errore bulk per ${video.name}:`, err);
+        }
+      }
+      alert("Generazione Bulk completata!");
+    } catch (error) {
+      console.error("Errore generale Bulk:", error);
+      alert("Si è verificato un errore durante la generazione bulk.");
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
   return (
     <div className="h-screen bg-neutral-950 text-neutral-300 font-sans p-2 md:p-4 flex flex-col overflow-hidden">
+      {isIframe && (
+        <div className="mb-4 bg-gradient-to-r from-indigo-600/20 to-purple-600/20 border border-indigo-500/50 text-white p-4 rounded-xl shadow-2xl backdrop-blur-sm flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-indigo-500 rounded-xl shadow-lg shadow-indigo-500/40">
+              <ShieldAlert className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold">Sblocca Funzionalità Complete</h3>
+              <p className="text-xs text-neutral-300">L'accesso ai file locali è possibile solo aprendo l'app in una nuova scheda.</p>
+            </div>
+          </div>
+          <button 
+            onClick={() => window.open(window.location.href, '_blank')}
+            className="w-full md:w-auto px-6 py-2 bg-white text-indigo-600 hover:bg-neutral-100 rounded-lg font-bold text-sm transition-all transform hover:scale-105 active:scale-95 shadow-xl"
+          >
+            APRI ORA
+          </button>
+        </div>
+      )}
       {/* Top Bar */}
       <div className="flex-none flex items-center justify-between mb-2 pb-2 border-b border-neutral-800">
         <div className="flex items-center gap-4">
@@ -362,7 +560,16 @@ export default function MetadataEditor({ onBack }: MetadataEditorProps) {
           </p>
 
           {/* Quick Info Fields */}
-          <div className="flex-none space-y-2 bg-neutral-900/50 p-3 rounded-xl border border-neutral-800/50">
+          <div className="flex-none space-y-3 bg-neutral-900 p-4 rounded-xl border border-neutral-700 shadow-lg">
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-purple-600/20 rounded-lg">
+                <Info className="w-5 h-5 text-purple-400" />
+              </div>
+              <p className="text-sm text-white font-bold leading-relaxed">
+                L'app salva file <span className="text-purple-400">.nfo</span> e <span className="text-purple-400">.jpg</span>. È la soluzione reale usata da Plex/Kodi per non appesantire il file video.
+              </p>
+            </div>
+            <div className="h-px bg-neutral-800 w-full" />
             <div className="flex items-center gap-2">
               <label className="w-1/3 text-xs text-right text-neutral-400">Release:</label>
               <input type="date" name="releaseDate" value={formData.releaseDate} onChange={handleInputChange} className="w-2/3 bg-neutral-950 border border-neutral-800 rounded-md px-2 py-1 text-xs focus:border-purple-500 outline-none" />
@@ -446,6 +653,39 @@ export default function MetadataEditor({ onBack }: MetadataEditorProps) {
                 </button>
               </div>
             </div>
+
+            {videoFiles.length > 0 && (
+              <div className="flex flex-col gap-2 pl-[5.5rem]">
+                <button 
+                  onClick={handleBulkGenerate}
+                  disabled={bulkLoading || loading}
+                  className="w-full py-2 bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 rounded-lg hover:bg-indigo-600/30 transition-all flex items-center justify-center gap-2 font-bold text-xs"
+                >
+                  {bulkLoading ? (
+                    <div className="w-3 h-3 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Sparkles className="w-4 h-4" />
+                  )}
+                  {bulkLoading ? 'Generazione Bulk in corso...' : `Genera Metadati per TUTTI (${videoFiles.length} file)`}
+                </button>
+                
+                {bulkLoading && (
+                  <div className="space-y-1">
+                    <div className="h-1.5 w-full bg-neutral-800 rounded-full overflow-hidden">
+                      <motion.div 
+                        className="h-full bg-indigo-500"
+                        initial={{ width: 0 }}
+                        animate={{ width: `${(bulkProgress.current / bulkProgress.total) * 100}%` }}
+                      />
+                    </div>
+                    <p className="text-[10px] text-neutral-500 flex justify-between">
+                      <span>Elaborazione: {bulkProgress.lastFile}</span>
+                      <span>{bulkProgress.current} / {bulkProgress.total}</span>
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
             
             {videoFiles.length > 0 && (
               <div className="flex items-center gap-3">
@@ -538,6 +778,18 @@ export default function MetadataEditor({ onBack }: MetadataEditorProps) {
             <div className="flex items-start gap-3">
               <label className="w-20 text-xs text-right text-neutral-400 pt-1">Comments:</label>
               <textarea name="comments" value={formData.comments} onChange={handleInputChange} rows={1} className="flex-1 bg-neutral-950 border border-neutral-800 rounded-md px-2 py-1 text-xs focus:border-purple-500 outline-none resize-none" />
+            </div>
+
+            <div className="mt-4 p-4 bg-neutral-900 border border-neutral-700 rounded-xl shadow-inner">
+              <h4 className="text-sm font-black text-white uppercase tracking-widest mb-3 flex items-center gap-2">
+                <ShieldAlert className="w-5 h-5 text-purple-400" /> OPZIONI AVANZATE
+              </h4>
+              <p className="text-sm text-white font-bold mb-3 leading-relaxed">
+                Se vuoi assolutamente "nascondere" i metadati dentro il file video (MKV), puoi usare questo comando via terminale dopo aver salvato i file con l'app:
+              </p>
+              <code className="block p-3 bg-black rounded-lg text-xs text-purple-400 break-all font-mono border border-neutral-800 shadow-lg">
+                mkvpropedit "{selectedVideo?.name}" --tags all:"{selectedVideo?.name?.replace(/\.[^/.]+$/, "")}.nfo" --attachment-add "poster.jpg"
+              </code>
             </div>
           </div>
 

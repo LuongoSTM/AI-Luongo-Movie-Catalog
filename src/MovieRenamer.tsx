@@ -52,6 +52,7 @@ export default function MovieRenamer({ onBack }: { onBack: () => void }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [isSecurityError, setIsSecurityError] = useState(false);
+  const [isIframe, setIsIframe] = useState(false);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [filterType, setFilterType] = useState<'all' | 'to_rename' | 'correct' | 'problematic'>('all');
   const [scriptTypeToGenerate, setScriptTypeToGenerate] = useState<'windows' | 'mac' | null>(null);
@@ -68,6 +69,7 @@ export default function MovieRenamer({ onBack }: { onBack: () => void }) {
   };
 
   useEffect(() => {
+    setIsIframe(window.self !== window.top);
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
@@ -557,6 +559,25 @@ export default function MovieRenamer({ onBack }: { onBack: () => void }) {
 
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-50 font-sans selection:bg-neutral-800 pt-44 pb-12 px-6 md:pt-48 md:pb-16 md:px-12">
+      {isIframe && (
+        <div className="mb-8 bg-gradient-to-r from-blue-600/20 to-purple-600/20 border border-blue-500/50 text-white p-6 rounded-2xl shadow-2xl backdrop-blur-sm flex flex-col md:flex-row items-center justify-between gap-6">
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-blue-500 rounded-2xl shadow-lg shadow-blue-500/40">
+              <ShieldAlert className="w-8 h-8 text-white" />
+            </div>
+            <div>
+              <h3 className="text-xl font-bold">Sblocca Funzionalità Complete</h3>
+              <p className="text-sm text-neutral-300">Per motivi di sicurezza del browser, l'accesso ai file locali è possibile solo aprendo l'app in una nuova scheda.</p>
+            </div>
+          </div>
+          <button 
+            onClick={() => window.open(window.location.href, '_blank')}
+            className="w-full md:w-auto px-8 py-4 bg-white text-blue-600 hover:bg-neutral-100 rounded-xl font-black text-lg transition-all transform hover:scale-105 active:scale-95 shadow-xl"
+          >
+            APRI IN NUOVA SCHEDA
+          </button>
+        </div>
+      )}
       {/* Top Bar */}
       <div className="fixed top-0 left-0 right-0 min-h-16 py-2 bg-neutral-950/80 backdrop-blur-xl border-b border-neutral-800/60 z-50 flex items-center justify-between px-4 md:px-8 shadow-2xl">
         <div className="flex items-center gap-3">
