@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { motion } from 'motion/react';
-import { ArrowLeft, Image as ImageIcon, Search, Save, X, FolderOpen, Edit2, Upload, FileVideo, AlertCircle, ShieldAlert, Sparkles, Info } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { ArrowLeft, Image as ImageIcon, Search, Save, X, FolderOpen, Edit2, Upload, FileVideo, AlertCircle, ShieldAlert, Sparkles, Info, CheckCircle2 } from 'lucide-react';
 import { Type } from '@google/genai';
 import { getGenAI, getApiKeyStatus } from './lib/gemini';
 import { Logo } from './components/Logo';
@@ -28,6 +28,7 @@ export default function MetadataEditor({ onBack }: MetadataEditorProps) {
   const [bulkLoading, setBulkLoading] = useState(false);
   const [bulkPosterLoading, setBulkPosterLoading] = useState(false);
   const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0, lastFile: '' });
+  const [saveStatus, setSaveStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
   
   const parseNfo = (xmlText: string) => {
     const parser = new DOMParser();
@@ -73,6 +74,13 @@ export default function MetadataEditor({ onBack }: MetadataEditorProps) {
   useEffect(() => {
     setIsIframe(window.self !== window.top);
   }, []);
+
+  useEffect(() => {
+    if (saveStatus) {
+      const timer = setTimeout(() => setSaveStatus(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [saveStatus]);
 
   const scanDirectoryForVideos = async (dirHandle: any, path = '', depth = 0): Promise<{name: string, handle: any, parentHandle: any, path: string}[]> => {
     if (depth > 4) return []; // Limite di profondità per evitare blocchi
@@ -179,6 +187,14 @@ export default function MetadataEditor({ onBack }: MetadataEditorProps) {
   };
 
   const handleFolderSelect = async () => {
+    if (isIframe) {
+      const confirm = window.confirm("SICUREZZA BROWSER: L'accesso ai file locali è bloccato nell'anteprima. Vuoi aprire l'app in una nuova scheda per sbloccare tutte le funzionalità?");
+      if (confirm) {
+        window.open(window.location.href, '_blank');
+      }
+      return;
+    }
+
     try {
       if (!window.showDirectoryPicker) {
         setError("Il tuo browser non supporta la File System Access API. Usa Chrome o Edge su PC.");
@@ -398,17 +414,24 @@ export default function MetadataEditor({ onBack }: MetadataEditorProps) {
 
   const handleSave = async () => {
     if (!selectedVideo || !selectedVideo.parentHandle) {
-      alert("Seleziona una cartella e un file video prima di salvare.");
+      setSaveStatus({ type: 'error', message: "Seleziona una cartella e un file video prima di salvare." });
       return;
     }
 
     setLoading(true);
+    setSaveStatus(null);
     try {
       await saveNfoAndPoster(selectedVideo, formData, posterUrl);
-      alert("Metadati (.nfo) e Locandine (.jpg) salvati con successo!\n\nNota: Questi file sono lo standard per Plex/Kodi. Mantenerli nella stessa cartella del film permette a tutti i lettori di leggere le info istantaneamente.");
+      setSaveStatus({ 
+        type: 'success', 
+        message: "Metadati (.nfo) e Locandine (.jpg) salvati con successo! I file sono ora pronti per Plex/Kodi." 
+      });
     } catch (error) {
       console.error("Errore salvataggio:", error);
-      alert("Si è verificato un errore durante il salvataggio. Assicurati di aver concesso i permessi alla cartella.");
+      setSaveStatus({ 
+        type: 'error', 
+        message: "Errore durante il salvataggio. Assicurati di aver concesso i permessi alla cartella." 
+      });
     } finally {
       setLoading(false);
     }
@@ -571,7 +594,7 @@ export default function MetadataEditor({ onBack }: MetadataEditorProps) {
         </div>
       )}
       {/* Top Bar */}
-      <div className="flex-none flex items-center justify-between mb-2 pb-2 border-b border-neutral-800">
+      <div className="flex-none flex items-center justify-between mb-1 pb-1 border-b border-neutral-800">
         <div className="flex items-center gap-4">
           <button 
             onClick={onBack}
@@ -579,10 +602,10 @@ export default function MetadataEditor({ onBack }: MetadataEditorProps) {
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
-          <div className="w-[120px] h-[120px] flex items-center justify-center">
+          <div className="w-10 h-10 flex items-center justify-center">
             <Logo className="w-full h-full drop-shadow-[0_0_12px_rgba(255,0,128,0.25)]" />
           </div>
-          <h1 className="text-xl font-bold text-white">Edit Media Metadata</h1>
+          <h1 className="text-lg font-bold text-white">Edit Media Metadata</h1>
         </div>
         <button onClick={onBack} className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-400 transition-colors">
           <X className="w-5 h-5" />
@@ -883,21 +906,42 @@ export default function MetadataEditor({ onBack }: MetadataEditorProps) {
             </div>
           </div>
 
-          <div className="flex-none flex justify-end gap-3 pt-1">
-            <button 
-              onClick={onBack}
-              className="px-4 py-1.5 rounded-full border border-neutral-700 text-neutral-300 hover:bg-neutral-800 transition-colors text-xs font-medium"
-            >
-              Cancel
-            </button>
-            <button 
-              onClick={handleSave}
-              disabled={!selectedVideo || loading}
-              className="px-6 py-1.5 rounded-full bg-purple-600 hover:bg-purple-500 disabled:bg-neutral-800 disabled:text-neutral-500 text-white transition-colors text-xs font-medium shadow-[0_0_15px_rgba(147,51,234,0.3)] flex items-center gap-2"
-            >
-              <Save className="w-3 h-3" />
-              Save Metadata
-            </button>
+          <div className="flex-none flex items-center justify-between gap-3 pt-1">
+            <div className="flex-1">
+              <AnimatePresence>
+                {saveStatus && (
+                  <motion.div
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -10 }}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium ${
+                      saveStatus.type === 'success' 
+                        ? 'bg-green-500/10 text-green-400 border border-green-500/20' 
+                        : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                    }`}
+                  >
+                    {saveStatus.type === 'success' ? <CheckCircle2 className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
+                    {saveStatus.message}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+            <div className="flex gap-3">
+              <button 
+                onClick={onBack}
+                className="px-4 py-1.5 rounded-full border border-neutral-700 text-neutral-300 hover:bg-neutral-800 transition-colors text-xs font-medium"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={handleSave}
+                disabled={!selectedVideo || loading}
+                className="px-6 py-1.5 rounded-full bg-purple-600 hover:bg-purple-500 disabled:bg-neutral-800 disabled:text-neutral-500 text-white transition-colors text-xs font-medium shadow-[0_0_15px_rgba(147,51,234,0.3)] flex items-center gap-2"
+              >
+                <Save className="w-3 h-3" />
+                Save Metadata
+              </button>
+            </div>
           </div>
 
         </div>

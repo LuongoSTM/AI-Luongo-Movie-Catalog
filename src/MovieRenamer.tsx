@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Type } from '@google/genai';
 import { getGenAI, getApiKeyStatus } from './lib/gemini';
-import { FolderOpen, Sparkles, Download, CheckCircle2, FileVideo, AlertCircle, AlertTriangle, FileText, ChevronDown, ChevronUp, ArrowLeft, Save, ShieldAlert } from 'lucide-react';
+import { FolderOpen, Sparkles, Download, CheckCircle2, FileVideo, AlertCircle, AlertTriangle, FileText, ChevronDown, ChevronUp, ArrowLeft, Save, ShieldAlert, Search, CheckSquare, Square } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { jsPDF } from 'jspdf';
 import { Logo } from './components/Logo';
@@ -58,8 +58,8 @@ export default function MovieRenamer({ onBack }: { onBack: () => void }) {
   const [scriptTypeToGenerate, setScriptTypeToGenerate] = useState<'windows' | 'mac' | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [selectedYear, setSelectedYear] = useState<string>('All');
+  const [searchQuery, setSearchQuery] = useState('');
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const toggleRowExpansion = (originalName: string) => {
     setExpandedRows(prev => ({
@@ -119,6 +119,14 @@ export default function MovieRenamer({ onBack }: { onBack: () => void }) {
   };
 
   const handleFolderSelect = async () => {
+    if (isIframe) {
+      const confirm = window.confirm("SICUREZZA BROWSER: L'accesso ai file locali è bloccato nell'anteprima. Vuoi aprire l'app in una nuova scheda per sbloccare tutte le funzionalità?");
+      if (confirm) {
+        window.open(window.location.href, '_blank');
+      }
+      return;
+    }
+
     try {
       if (!window.showDirectoryPicker) {
         setError("Il tuo browser non supporta la File System Access API. Usa Chrome o Edge su PC.");
@@ -550,15 +558,38 @@ export default function MovieRenamer({ onBack }: { onBack: () => void }) {
     }
 
     if (!statusMatch) return false;
-    if (selectedYear === 'All') return true;
-    return getYearString(f.year) === selectedYear;
+    
+    const yearMatch = selectedYear === 'All' || getYearString(f.year) === selectedYear;
+    if (!yearMatch) return false;
+
+    if (searchQuery.trim() === '') return true;
+    const searchLower = searchQuery.toLowerCase();
+    return f.originalName.toLowerCase().includes(searchLower) || 
+           f.proposedName.toLowerCase().includes(searchLower) ||
+           (f.originalTitle && f.originalTitle.toLowerCase().includes(searchLower)) ||
+           (f.director && f.director.toLowerCase().includes(searchLower));
   });
+
+  const toggleAllSelection = () => {
+    const allSelected = filteredFiles.every(f => f.selected || f.isAlreadyCorrect || f.originalName === f.proposedName || f.hasConflict);
+    const targetValue = !allSelected;
+    
+    setAnalyzedFiles(prev => prev.map(f => {
+      const isVisible = filteredFiles.some(ff => ff.originalName === f.originalName);
+      const canBeSelected = !f.isAlreadyCorrect && f.originalName !== f.proposedName && !f.hasConflict;
+      
+      if (isVisible && canBeSelected) {
+        return { ...f, selected: targetValue };
+      }
+      return f;
+    }));
+  };
 
   const timeString = currentTime.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   const dateString = currentTime.toLocaleDateString('it-IT', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-neutral-50 font-sans selection:bg-neutral-800 pt-44 pb-12 px-6 md:pt-48 md:pb-16 md:px-12">
+    <div className="min-h-screen bg-neutral-950 text-neutral-50 font-sans selection:bg-neutral-800 pt-24 pb-12 px-6 md:pt-28 md:pb-16 md:px-12">
       {isIframe && (
         <div className="mb-8 bg-gradient-to-r from-blue-600/20 to-purple-600/20 border border-blue-500/50 text-white p-6 rounded-2xl shadow-2xl backdrop-blur-sm flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="flex items-center gap-4">
@@ -579,7 +610,7 @@ export default function MovieRenamer({ onBack }: { onBack: () => void }) {
         </div>
       )}
       {/* Top Bar */}
-      <div className="fixed top-0 left-0 right-0 min-h-16 py-2 bg-neutral-950/80 backdrop-blur-xl border-b border-neutral-800/60 z-50 flex items-center justify-between px-4 md:px-8 shadow-2xl">
+      <div className="fixed top-0 left-0 right-0 min-h-12 py-1 bg-neutral-950/80 backdrop-blur-xl border-b border-neutral-800/60 z-50 flex items-center justify-between px-4 md:px-8 shadow-2xl">
         <div className="flex items-center gap-3">
           <button 
             onClick={onBack}
@@ -588,10 +619,10 @@ export default function MovieRenamer({ onBack }: { onBack: () => void }) {
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
-          <div className="w-[120px] h-[120px] flex items-center justify-center">
+          <div className="w-12 h-12 flex items-center justify-center">
             <Logo className="w-full h-full drop-shadow-[0_0_12px_rgba(255,0,128,0.25)]" />
           </div>
-          <h1 className="font-bold text-lg md:text-xl tracking-tight bg-gradient-to-r from-white via-blue-100 to-blue-400 bg-clip-text text-transparent">
+          <h1 className="font-bold text-base md:text-lg tracking-tight bg-gradient-to-r from-white via-blue-100 to-blue-400 bg-clip-text text-transparent">
             AI Luongo Movie Renamer
           </h1>
         </div>
@@ -626,18 +657,8 @@ export default function MovieRenamer({ onBack }: { onBack: () => void }) {
 
         {/* Step 1: Select Folder */}
         <section className="bg-neutral-900/50 border border-neutral-800 rounded-3xl p-8 text-center">
-          <input
-            type="file"
-            // @ts-ignore - webkitdirectory is non-standard but widely supported
-            webkitdirectory="true"
-            directory="true"
-            multiple
-            className="hidden"
-            ref={fileInputRef}
-            onChange={handleFolderSelect}
-          />
           <button
-            onClick={() => fileInputRef.current?.click()}
+            onClick={handleFolderSelect}
             className="inline-flex items-center gap-3 bg-white text-black px-8 py-4 rounded-full font-semibold text-lg hover:bg-neutral-200 transition-colors"
           >
             <FolderOpen className="w-6 h-6" />
@@ -869,6 +890,34 @@ export default function MovieRenamer({ onBack }: { onBack: () => void }) {
               </motion.div>
             )}
 
+            <div className="flex flex-col md:flex-row gap-4 items-center justify-between bg-neutral-900/50 border border-neutral-800 p-4 rounded-2xl">
+              <div className="relative w-full md:w-96">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
+                <input
+                  type="text"
+                  placeholder="Cerca tra i file analizzati..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl py-2 pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all"
+                />
+              </div>
+              <div className="flex items-center gap-3 w-full md:w-auto">
+                <button
+                  onClick={toggleAllSelection}
+                  className="flex-1 md:flex-none inline-flex items-center justify-center gap-2 bg-neutral-800 hover:bg-neutral-700 text-white px-4 py-2 rounded-xl text-sm font-medium transition-colors"
+                >
+                  {filteredFiles.every(f => f.selected || f.isAlreadyCorrect || f.originalName === f.proposedName || f.hasConflict) ? (
+                    <><Square className="w-4 h-4" /> Deseleziona Tutti</>
+                  ) : (
+                    <><CheckSquare className="w-4 h-4" /> Seleziona Tutti</>
+                  )}
+                </button>
+                <div className="text-xs text-neutral-500 font-medium px-2">
+                  {filteredFiles.length} file mostrati
+                </div>
+              </div>
+            </div>
+
             <div className="bg-neutral-900/50 border border-neutral-800 rounded-2xl overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm">
@@ -884,7 +933,7 @@ export default function MovieRenamer({ onBack }: { onBack: () => void }) {
                     {filteredFiles.map((file, idx) => (
                       <tr 
                         key={idx} 
-                        className={`transition-colors hover:bg-neutral-800/30 ${!file.selected && !file.isAlreadyCorrect && !file.hasConflict ? 'opacity-50' : ''} ${file.isAlreadyCorrect ? 'bg-green-950/5' : ''} ${file.hasConflict ? 'bg-red-950/10' : ''}`}
+                        className={`transition-colors hover:bg-neutral-800/30 ${!file.selected && !file.isAlreadyCorrect && !file.hasConflict ? 'opacity-50' : ''} ${file.isAlreadyCorrect ? 'bg-green-950/5' : ''} ${file.hasConflict ? 'bg-red-950/20 border-l-4 border-l-red-500' : ''} ${(!file.isAlreadyCorrect && file.originalName === file.proposedName) ? 'bg-yellow-950/5' : ''}`}
                       >
                         <td className="p-4 text-center">
                           <input

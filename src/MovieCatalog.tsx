@@ -131,6 +131,14 @@ export default function MovieCatalog({ onBack }: { onBack: () => void }) {
   };
 
   const handleLoadLibrary = async () => {
+    if (isIframe) {
+      const confirm = window.confirm("SICUREZZA BROWSER: L'accesso ai file locali è bloccato nell'anteprima. Vuoi aprire l'app in una nuova scheda per sbloccare tutte le funzionalità?");
+      if (confirm) {
+        window.open(window.location.href, '_blank');
+      }
+      return;
+    }
+
     try {
       if (!window.showDirectoryPicker) {
         setError("Il tuo browser non supporta la File System Access API. Usa Chrome o Edge su PC.");
@@ -172,7 +180,7 @@ export default function MovieCatalog({ onBack }: { onBack: () => void }) {
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-50 font-sans flex flex-col">
       {/* Top Navigation */}
-      <div className="sticky top-0 z-40 bg-neutral-950/80 backdrop-blur-xl border-b border-neutral-800/60 px-6 py-4 flex items-center justify-between">
+      <div className="sticky top-0 z-40 bg-neutral-950/80 backdrop-blur-xl border-b border-neutral-800/60 px-6 py-2 flex items-center justify-between">
         <div className="flex items-center gap-4">
           <button 
             onClick={onBack}
@@ -180,10 +188,10 @@ export default function MovieCatalog({ onBack }: { onBack: () => void }) {
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
-          <div className="w-[120px] h-[120px] flex items-center justify-center">
+          <div className="w-12 h-12 flex items-center justify-center">
             <Logo className="w-full h-full drop-shadow-[0_0_12px_rgba(255,0,128,0.25)]" />
           </div>
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-white to-neutral-400 bg-clip-text text-transparent">
+          <h1 className="text-xl font-bold bg-gradient-to-r from-white to-neutral-400 bg-clip-text text-transparent">
             Movie Catalog
           </h1>
         </div>
@@ -257,24 +265,39 @@ export default function MovieCatalog({ onBack }: { onBack: () => void }) {
                   </div>
                   <h2 className="text-xl font-bold text-white">Aggiunti di Recente</h2>
                 </div>
-                <div className="flex gap-6 overflow-x-auto pb-6 scrollbar-hide snap-x">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                   {recentMovies.map((movie) => (
                     <motion.div 
                       key={`recent-${movie.id}`}
-                      whileHover={{ scale: 1.05 }}
+                      whileHover={{ y: -5 }}
                       onClick={() => setSelectedMovie(movie)}
-                      className="flex-none w-40 md:w-48 cursor-pointer snap-start"
+                      className="group cursor-pointer bg-neutral-900/40 border border-neutral-800/50 rounded-2xl p-3 hover:bg-neutral-800/40 transition-all flex gap-4"
                     >
-                      <div className="relative aspect-[2/3] rounded-xl overflow-hidden bg-neutral-900 border border-neutral-800 shadow-lg mb-2">
+                      <div className="relative w-24 aspect-[2/3] rounded-xl overflow-hidden bg-neutral-900 border border-neutral-800 shadow-lg flex-shrink-0">
                         {movie.posterUrl ? (
                           <img src={movie.posterUrl} alt={movie.title} className="w-full h-full object-cover" />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center text-neutral-700">
-                            <Film className="w-10 h-10" />
+                            <Film className="w-8 h-8" />
                           </div>
                         )}
                       </div>
-                      <h3 className="font-bold text-xs text-neutral-200 truncate">{movie.title}</h3>
+                      <div className="flex-1 min-w-0 py-1 flex flex-col justify-between">
+                        <div>
+                          <h3 className="font-bold text-sm text-neutral-200 truncate group-hover:text-purple-400 transition-colors">{movie.title}</h3>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-[10px] text-neutral-500 font-medium">{movie.year || 'N/A'}</span>
+                            {movie.genre && (
+                              <span className="text-[10px] text-purple-400/80 font-bold truncate max-w-[100px]">{movie.genre.split(',')[0]}</span>
+                            )}
+                          </div>
+                        </div>
+                        {movie.director && (
+                          <div className="text-[10px] text-neutral-500 truncate">
+                            <span className="font-bold uppercase tracking-tighter text-neutral-600 mr-1">Dir:</span> {movie.director}
+                          </div>
+                        )}
+                      </div>
                     </motion.div>
                   ))}
                 </div>
@@ -291,31 +314,48 @@ export default function MovieCatalog({ onBack }: { onBack: () => void }) {
                   {searchQuery ? `Risultati per "${searchQuery}"` : 'Tutti i Film'}
                 </h2>
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
                 {filteredMovies.map((movie) => (
                   <motion.div 
                     key={movie.id}
                     layoutId={`movie-${movie.id}`}
                     onClick={() => setSelectedMovie(movie)}
-                    className="group cursor-pointer flex flex-col gap-3"
+                    className="group cursor-pointer bg-neutral-900/30 border border-neutral-800/40 rounded-2xl p-3 hover:bg-neutral-800/40 transition-all flex flex-col gap-3"
                   >
-                    <div className="relative aspect-[2/3] rounded-xl overflow-hidden bg-neutral-900 border border-neutral-800 shadow-lg">
+                    <div className="relative aspect-[16/9] rounded-xl overflow-hidden bg-neutral-900 border border-neutral-800 shadow-lg">
                       {movie.posterUrl ? (
-                        <img src={movie.posterUrl} alt={movie.title} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" />
+                        <img src={movie.posterUrl} alt={movie.title} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center text-neutral-700">
-                          <Film className="w-12 h-12" />
+                          <Film className="w-10 h-10" />
                         </div>
                       )}
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/0 to-black/0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end p-4">
-                        <div className="w-10 h-10 rounded-full bg-purple-600 flex items-center justify-center text-white transform translate-y-4 group-hover:translate-y-0 transition-transform duration-300 shadow-lg">
-                          <Info className="w-5 h-5" />
-                        </div>
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end p-3">
+                        <p className="text-[10px] text-neutral-300 line-clamp-2 leading-tight italic">
+                          {movie.plot || 'Nessuna trama disponibile.'}
+                        </p>
                       </div>
                     </div>
-                    <div>
-                      <h3 className="font-bold text-sm text-neutral-200 truncate group-hover:text-purple-400 transition-colors">{movie.title}</h3>
-                      <p className="text-xs text-neutral-500">{movie.year || 'Anno sconosciuto'}</p>
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-start gap-2">
+                        <h3 className="font-bold text-sm text-neutral-100 truncate group-hover:text-purple-400 transition-colors flex-1">{movie.title}</h3>
+                        <span className="text-[10px] font-bold text-neutral-500 bg-neutral-800 px-1.5 py-0.5 rounded">{movie.year || 'N/A'}</span>
+                      </div>
+                      
+                      <div className="flex flex-col gap-1">
+                        {movie.genre && (
+                          <div className="flex items-center gap-1.5">
+                            <Film className="w-3 h-3 text-purple-500/70" />
+                            <span className="text-[10px] text-neutral-400 truncate">{movie.genre}</span>
+                          </div>
+                        )}
+                        {movie.director && (
+                          <div className="flex items-center gap-1.5">
+                            <Star className="w-3 h-3 text-yellow-500/70" />
+                            <span className="text-[10px] text-neutral-400 truncate">Dir: {movie.director}</span>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </motion.div>
                 ))}
@@ -325,81 +365,80 @@ export default function MovieCatalog({ onBack }: { onBack: () => void }) {
         )}
       </div>
 
-      {/* Movie Details Modal */}
+      {/* Compact Centered Movie Details Modal */}
       <AnimatePresence>
         {selectedMovie && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-8">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setSelectedMovie(null)}
-              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+              className="absolute inset-0 bg-black/90 backdrop-blur-md"
             />
             <motion.div 
-              layoutId={`movie-${selectedMovie.id}`}
-              className="relative w-full max-w-5xl bg-neutral-900 rounded-3xl border border-neutral-800 shadow-2xl overflow-hidden flex flex-col md:flex-row max-h-[90vh]"
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-2xl bg-neutral-900 rounded-[2rem] border border-neutral-800 shadow-2xl overflow-hidden flex flex-col md:flex-row"
             >
-              {/* Poster Side */}
-              <div className="w-full md:w-1/3 lg:w-2/5 bg-neutral-950 relative flex-shrink-0">
+              {/* Compact Poster */}
+              <div className="w-full md:w-2/5 bg-neutral-950 relative flex-shrink-0 aspect-[2/3] md:aspect-auto">
                 {selectedMovie.posterUrl ? (
                   <img src={selectedMovie.posterUrl} alt={selectedMovie.title} className="w-full h-full object-cover" />
                 ) : (
-                  <div className="w-full h-full min-h-[300px] flex items-center justify-center text-neutral-800">
-                    <Film className="w-24 h-24" />
+                  <div className="w-full h-full flex items-center justify-center text-neutral-800">
+                    <Film className="w-16 h-16" />
                   </div>
                 )}
                 <div className="absolute inset-0 bg-gradient-to-t from-neutral-900 via-transparent to-transparent md:bg-gradient-to-r md:from-transparent md:to-neutral-900" />
               </div>
 
-              {/* Details Side */}
-              <div className="flex-1 p-8 md:p-10 overflow-y-auto">
+              {/* Compact Details */}
+              <div className="flex-1 p-6 md:p-8 flex flex-col justify-center">
                 <button 
                   onClick={() => setSelectedMovie(null)}
-                  className="absolute top-6 right-6 p-2 bg-neutral-800/50 hover:bg-neutral-700 rounded-full text-neutral-400 hover:text-white transition-colors"
+                  className="absolute top-4 right-4 p-2 bg-neutral-800/50 hover:bg-neutral-700 rounded-full text-neutral-400 hover:text-white transition-colors z-10"
                 >
-                  <X className="w-5 h-5" />
+                  <X className="w-4 h-4" />
                 </button>
 
-                <div className="space-y-6">
+                <div className="space-y-4">
                   <div>
-                    <h2 className="text-3xl md:text-5xl font-extrabold text-white mb-2">{selectedMovie.title}</h2>
-                    {selectedMovie.originalTitle && selectedMovie.originalTitle !== selectedMovie.title && (
-                      <p className="text-lg text-neutral-400 italic">{selectedMovie.originalTitle}</p>
-                    )}
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-4 text-sm font-medium">
-                    {selectedMovie.year && (
-                      <span className="flex items-center gap-1.5 text-purple-400 bg-purple-400/10 px-3 py-1 rounded-full">
-                        <Calendar className="w-4 h-4" /> {selectedMovie.year}
-                      </span>
-                    )}
-                    {selectedMovie.genre && (
-                      <span className="text-neutral-300 bg-neutral-800 px-3 py-1 rounded-full">
-                        {selectedMovie.genre}
-                      </span>
-                    )}
+                    <h2 className="text-2xl md:text-3xl font-black text-white leading-tight">{selectedMovie.title}</h2>
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {selectedMovie.year && (
+                        <span className="text-[10px] font-bold text-purple-400 bg-purple-400/10 px-2 py-0.5 rounded-md border border-purple-400/20">
+                          {selectedMovie.year}
+                        </span>
+                      )}
+                      {selectedMovie.genre && (
+                        <span className="text-[10px] font-bold text-neutral-400 bg-neutral-800 px-2 py-0.5 rounded-md border border-neutral-700">
+                          {selectedMovie.genre}
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   {selectedMovie.plot && (
-                    <div>
-                      <h4 className="text-sm font-bold text-neutral-500 uppercase tracking-wider mb-2">Trama</h4>
-                      <p className="text-neutral-300 leading-relaxed text-lg">{selectedMovie.plot}</p>
+                    <div className="relative">
+                      <p className="text-neutral-300 text-sm leading-relaxed line-clamp-6 italic">
+                        "{selectedMovie.plot}"
+                      </p>
                     </div>
                   )}
 
-                  {selectedMovie.director && (
-                    <div>
-                      <h4 className="text-sm font-bold text-neutral-500 uppercase tracking-wider mb-1">Regia</h4>
-                      <p className="text-neutral-200">{selectedMovie.director}</p>
+                  <div className="pt-4 space-y-2 border-t border-neutral-800/50">
+                    {selectedMovie.director && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-black text-neutral-500 uppercase tracking-widest">Regia:</span>
+                        <span className="text-xs text-neutral-200 font-medium">{selectedMovie.director}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-black text-neutral-500 uppercase tracking-widest">File:</span>
+                      <span className="text-[10px] text-neutral-500 font-mono truncate max-w-[150px]">{selectedMovie.videoFileName}</span>
                     </div>
-                  )}
-
-                  <div className="pt-6 border-t border-neutral-800">
-                    <p className="text-xs text-neutral-500 font-mono break-all">
-                      File: {selectedMovie.videoFileName}
-                    </p>
                   </div>
                 </div>
               </div>
