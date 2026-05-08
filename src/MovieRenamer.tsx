@@ -41,9 +41,15 @@ interface AnalyzedFile {
   hasConflict?: boolean;
 }
 
-const VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v'];
+const VIDEO_EXTENSIONS = [
+  '.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v', 
+  '.ts', '.m2ts', '.vob', '.3gp', '.mpg', '.mpeg', '.divx', '.xvid', '.asf', '.rmvb',
+  '.iso', '.m2t', '.m1v', '.m2v', '.mp2', '.mpeg4', '.div', '.ogm', '.ogv', '.qt',
+  '.rm', '.m4p', '.m4b', '.m4r', '.f4v', '.f4p', '.f4a', '.f4b',
+  '.3g2', '.mod', '.tod', '.vro', '.dvr-ms', '.amv', '.mjp', '.mjpeg'
+];
 const CORRECT_PATTERN = /^.+ \(\d{4}\)$/;
-const DIRTY_PATTERN = /(1080p|720p|2160p|4k|bluray|bdrip|brrip|dvdrip|web-dl|webrip|x264|h264|hevc|x265|ita|eng|dts|ac3|aac|multisub|remux|xvid|divx)/i;
+const DIRTY_PATTERN = /(1080p|720p|2160p|4k|bluray|bdrip|brrip|dvdrip|web-dl|webrip|x264|h264|hevc|x265|ita|eng|dts|ac3|aac|multisub|remux|xvid|divx|h265|h.264|h.265|10bit|hdr|dovi|vision|atvp|amzn|netflix|nf|dnp|dsnp|cyber|iamable|juggs|rarbg|ettv|tpx|tgx|psa|qxr|yify|yts|evans|galaxy|mkv|mp4|avi)/i;
 
 export default function MovieRenamer({ onBack }: { onBack: () => void }) {
   const [files, setFiles] = useState<FileData[]>([]);
@@ -60,6 +66,7 @@ export default function MovieRenamer({ onBack }: { onBack: () => void }) {
   const [selectedYear, setSelectedYear] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const toggleRowExpansion = (originalName: string) => {
     setExpandedRows(prev => ({
@@ -75,9 +82,9 @@ export default function MovieRenamer({ onBack }: { onBack: () => void }) {
   }, []);
 
   const scanDirectoryForVideos = async (dirHandle: any, path = '', depth = 0): Promise<FileData[]> => {
-    if (depth > 4) return []; // Limite di profondità per evitare blocchi
+    if (depth > 12) return []; // Profondità aumentata per librerie complesse
     let foundFiles: FileData[] = [];
-    const IGNORED_DIRS = ['.git', '.trashes', 'system volume information', 'node_modules', '$recycle.bin'];
+    const IGNORED_DIRS = ['.git', '.trashes', 'system volume information', 'node_modules', '$recycle.bin', 'metadata', 'backups'];
     let iterations = 0;
     
     try {
@@ -94,10 +101,13 @@ export default function MovieRenamer({ onBack }: { onBack: () => void }) {
         } else if (entry.kind === 'file') {
           const name = entry.name as string;
           const lowerName = name.toLowerCase();
-          if (VIDEO_EXTENSIONS.some(ext => lowerName.endsWith(ext))) {
+          const hasVideoExt = VIDEO_EXTENSIONS.some(ext => lowerName.endsWith(ext));
+          const looksLikeMovie = DIRTY_PATTERN.test(lowerName) && !lowerName.endsWith('.txt') && !lowerName.endsWith('.nfo') && !lowerName.endsWith('.jpg') && !lowerName.endsWith('.srt');
+          
+          if (hasVideoExt || looksLikeMovie) {
             const lastDotIndex = name.lastIndexOf('.');
-            const nameWithoutExt = name.substring(0, lastDotIndex);
-            const extension = name.substring(lastDotIndex);
+            const nameWithoutExt = lastDotIndex !== -1 ? name.substring(0, lastDotIndex) : name;
+            const extension = lastDotIndex !== -1 ? name.substring(lastDotIndex) : '';
             const isAlreadyCorrect = CORRECT_PATTERN.test(nameWithoutExt) && !DIRTY_PATTERN.test(nameWithoutExt);
             
             foundFiles.push({
@@ -127,11 +137,13 @@ export default function MovieRenamer({ onBack }: { onBack: () => void }) {
       return;
     }
 
+    // Firefox Fallback: Se showDirectoryPicker non esiste, usiamo il vecchio input
+    if (!window.showDirectoryPicker) {
+      fileInputRef.current?.click();
+      return;
+    }
+
     try {
-      if (!window.showDirectoryPicker) {
-        setError("Il tuo browser non supporta la File System Access API. Usa Chrome o Edge su PC.");
-        return;
-      }
       const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
       setDirHandle(handle);
       
@@ -156,6 +168,56 @@ export default function MovieRenamer({ onBack }: { onBack: () => void }) {
       } else if (error.name !== 'AbortError') {
         setError(`Errore durante la selezione: ${error.message || 'Impossibile accedere alla cartella'}. Assicurati di non selezionare un'intera unità di sistema (es. C:).`);
       }
+    }
+  };
+
+  const handleManualFileSelection = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const fileList = e.target.files;
+    if (!fileList || fileList.length === 0) return;
+
+    setLoading(true);
+    setError('');
+    
+    const foundFiles: FileData[] = [];
+    for (let i = 0; i < fileList.length; i++) {
+        const file = fileList[i];
+        const name = file.name;
+        const lowerName = name.toLowerCase();
+        
+        const hasVideoExt = VIDEO_EXTENSIONS.some(ext => lowerName.endsWith(ext));
+        const looksLikeMovie = DIRTY_PATTERN.test(lowerName) && !lowerName.endsWith('.txt') && !lowerName.endsWith('.nfo') && !lowerName.endsWith('.jpg') && !lowerName.endsWith('.srt');
+
+        if (hasVideoExt || looksLikeMovie) {
+            const lastDotIndex = name.lastIndexOf('.');
+            const nameWithoutExt = lastDotIndex !== -1 ? name.substring(0, lastDotIndex) : name;
+            const extension = lastDotIndex !== -1 ? name.substring(lastDotIndex) : '';
+            const isAlreadyCorrect = CORRECT_PATTERN.test(nameWithoutExt) && !DIRTY_PATTERN.test(nameWithoutExt);
+
+            // webkitRelativePath ci dà il percorso relativo se disponibile
+            const path = (file as any).webkitRelativePath || '';
+            let relativeDir = '';
+            const lastSlash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+            if (lastSlash !== -1) {
+                relativeDir = path.substring(0, lastSlash);
+            }
+            
+            foundFiles.push({
+                originalName: name,
+                relativePath: path || name,
+                relativeDir: relativeDir,
+                nameWithoutExt,
+                extension,
+                isAlreadyCorrect
+            });
+        }
+    }
+
+    setFiles(foundFiles);
+    setAnalyzedFiles([]);
+    setLoading(false);
+
+    if (foundFiles.length === 0) {
+        setError("Nessun file video trovato nella cartella selezionata.");
     }
   };
 
@@ -540,14 +602,15 @@ export default function MovieRenamer({ onBack }: { onBack: () => void }) {
     doc.save("Istruzioni_Locali_Movie_Renamer.pdf");
   };
 
-  const unmodifiedCount = analyzedFiles.filter(f => !f.isAlreadyCorrect && f.originalName === f.proposedName).length;
-  const conflictCount = analyzedFiles.filter(f => f.hasConflict).length;
-  const selectedCount = analyzedFiles.filter(f => f.selected).length;
+  const unmodifiedCount = (analyzedFiles || []).filter(f => f && !f.isAlreadyCorrect && f.originalName === f.proposedName).length;
+  const conflictCount = (analyzedFiles || []).filter(f => f && f.hasConflict).length;
+  const selectedCount = (analyzedFiles || []).filter(f => f && f.selected).length;
 
   const getYearString = (yearField: string) => yearField.replace(/[() ]/g, '');
   const availableYears = Array.from(new Set(analyzedFiles.map(f => getYearString(f.year)).filter(Boolean))).sort().reverse();
   
-  const filteredFiles = analyzedFiles.filter(f => {
+  const filteredFiles = (analyzedFiles || []).filter(f => {
+    if (!f) return false;
     let statusMatch = true;
     if (filterType === 'problematic') {
       statusMatch = (!f.isAlreadyCorrect && f.originalName === f.proposedName) || !!f.hasConflict;
@@ -559,15 +622,25 @@ export default function MovieRenamer({ onBack }: { onBack: () => void }) {
 
     if (!statusMatch) return false;
     
-    const yearMatch = selectedYear === 'All' || getYearString(f.year) === selectedYear;
+    const fileYear = getYearString(f.year || '');
+    const yearMatch = selectedYear === 'All' || fileYear === selectedYear;
     if (!yearMatch) return false;
 
-    if (searchQuery.trim() === '') return true;
+    if (!searchQuery || searchQuery.trim() === '') return true;
     const searchLower = searchQuery.toLowerCase();
-    return f.originalName.toLowerCase().includes(searchLower) || 
-           f.proposedName.toLowerCase().includes(searchLower) ||
-           (f.originalTitle && f.originalTitle.toLowerCase().includes(searchLower)) ||
-           (f.director && f.director.toLowerCase().includes(searchLower));
+    
+    // Safety check for all fields
+    const oName = (f.originalName || '').toLowerCase();
+    const pName = (f.proposedName || '').toLowerCase();
+    const oTitle = (f.originalTitle || '').toLowerCase();
+    const dir = (f.director || '').toLowerCase();
+    const act = Array.isArray(f.actors) ? f.actors.join(' ').toLowerCase() : '';
+
+    return oName.includes(searchLower) || 
+           pName.includes(searchLower) ||
+           oTitle.includes(searchLower) ||
+           dir.includes(searchLower) ||
+           act.includes(searchLower);
   });
 
   const toggleAllSelection = () => {
@@ -589,7 +662,7 @@ export default function MovieRenamer({ onBack }: { onBack: () => void }) {
   const dateString = currentTime.toLocaleDateString('it-IT', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-neutral-50 font-sans selection:bg-neutral-800 pt-24 pb-12 px-6 md:pt-28 md:pb-16 md:px-12">
+    <div className="min-h-screen bg-neutral-950 text-neutral-50 font-sans selection:bg-neutral-800 pt-24 pb-12 px-6 md:pt-28 md:pb-16 md:px-12 overflow-x-hidden">
       {isIframe && (
         <div className="mb-8 bg-gradient-to-r from-blue-600/20 to-purple-600/20 border border-blue-500/50 text-white p-6 rounded-2xl shadow-2xl backdrop-blur-sm flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="flex items-center gap-4">
@@ -657,6 +730,16 @@ export default function MovieRenamer({ onBack }: { onBack: () => void }) {
 
         {/* Step 1: Select Folder */}
         <section className="bg-neutral-900/50 border border-neutral-800 rounded-3xl p-8 text-center">
+          <input
+            type="file"
+            // @ts-ignore - webkitdirectory is non-standard but widely supported
+            webkitdirectory="true"
+            directory="true"
+            multiple
+            className="hidden"
+            ref={fileInputRef}
+            onChange={handleManualFileSelection}
+          />
           <button
             onClick={handleFolderSelect}
             className="inline-flex items-center gap-3 bg-white text-black px-8 py-4 rounded-full font-semibold text-lg hover:bg-neutral-200 transition-colors"
@@ -688,7 +771,7 @@ export default function MovieRenamer({ onBack }: { onBack: () => void }) {
                 </div>
 
                 <div className="max-h-64 overflow-y-auto bg-neutral-950/50 rounded-xl border border-neutral-800 p-4 text-left text-sm font-mono space-y-2 mb-6 shadow-inner">
-                  {files.map((f, i) => (
+                  {files.slice(0, 200).map((f, i) => (
                     <div key={i} className="flex items-center justify-between gap-4 p-2 rounded-lg hover:bg-neutral-900/50 transition-colors">
                       <div className="truncate text-neutral-300 flex items-center gap-3">
                         <FileVideo className="w-4 h-4 text-neutral-500 flex-shrink-0" />
@@ -705,6 +788,11 @@ export default function MovieRenamer({ onBack }: { onBack: () => void }) {
                       )}
                     </div>
                   ))}
+                  {files.length > 200 && (
+                    <div className="p-3 text-center text-neutral-500 italic text-xs border-t border-neutral-800/50">
+                      E altri {files.length - 200} file trovati...
+                    </div>
+                  )}
                 </div>
               </div>
               <button

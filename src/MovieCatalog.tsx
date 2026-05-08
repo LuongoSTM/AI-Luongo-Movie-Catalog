@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeft, FolderOpen, Play, Info, Search, Star, Clock, Calendar, Library, Film, X } from 'lucide-react';
 import { Logo } from './components/Logo';
@@ -23,7 +23,15 @@ interface Movie {
   lastModified: number;
 }
 
-const VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v'];
+const VIDEO_EXTENSIONS = [
+  '.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v', 
+  '.ts', '.m2ts', '.vob', '.3gp', '.mpg', '.mpeg', '.divx', '.xvid', '.asf', '.rmvb',
+  '.iso', '.m2t', '.m1v', '.m2v', '.mp2', '.mpeg4', '.div', '.ogm', '.ogv', '.qt',
+  '.rm', '.m4p', '.m4b', '.m4r', '.f4v', '.f4p', '.f4a', '.f4b',
+  '.3g2', '.mod', '.tod', '.vro', '.dvr-ms', '.amv', '.mjp', '.mjpeg'
+];
+
+const DIRTY_PATTERN = /(1080p|720p|2160p|4k|bluray|bdrip|brrip|dvdrip|web-dl|webrip|x264|h264|hevc|x265|ita|eng|dts|ac3|aac|multisub|remux|xvid|divx|h265|h.264|h.265|10bit|hdr|dovi|vision|atvp|amzn|netflix|nf|dnp|dsnp|cyber|iamable|juggs|rarbg|ettv|tpx|tgx|psa|qxr|yify|yts|evans|galaxy|mkv|mp4|avi)/i;
 
 export default function MovieCatalog({ onBack }: { onBack: () => void }) {
   const [movies, setMovies] = useState<Movie[]>([]);
@@ -33,6 +41,7 @@ export default function MovieCatalog({ onBack }: { onBack: () => void }) {
   const [isIframe, setIsIframe] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setIsIframe(window.self !== window.top);
@@ -58,9 +67,9 @@ export default function MovieCatalog({ onBack }: { onBack: () => void }) {
   };
 
   const scanDirectory = async (dirHandle: any, path = '', depth = 0): Promise<Movie[]> => {
-    if (depth > 4) return []; // Limite di profondità per evitare blocchi
+    if (depth > 12) return []; // Profondità aumentata per librerie complesse
     let foundMovies: Movie[] = [];
-    const IGNORED_DIRS = ['.git', '.trashes', 'system volume information', 'node_modules', '$recycle.bin'];
+    const IGNORED_DIRS = ['.git', '.trashes', 'system volume information', 'node_modules', '$recycle.bin', 'metadata', 'backups'];
     let iterations = 0;
     
     try {
@@ -78,8 +87,12 @@ export default function MovieCatalog({ onBack }: { onBack: () => void }) {
           const name = entry.name as string;
           const lowerName = name.toLowerCase();
           
-          if (VIDEO_EXTENSIONS.some(ext => lowerName.endsWith(ext))) {
-            const baseName = name.substring(0, name.lastIndexOf('.'));
+          const hasVideoExt = VIDEO_EXTENSIONS.some(ext => lowerName.endsWith(ext));
+          const looksLikeMovie = DIRTY_PATTERN.test(lowerName) && !lowerName.endsWith('.txt') && !lowerName.endsWith('.nfo') && !lowerName.endsWith('.jpg') && !lowerName.endsWith('.srt');
+
+          if (hasVideoExt || looksLikeMovie) {
+            const lastDotIndex = name.lastIndexOf('.');
+            const baseName = lastDotIndex !== -1 ? name.substring(0, lastDotIndex) : name;
             const fileData = await (entry as FileSystemFileHandle).getFile();
             
             let movieData: Partial<Movie> = {
@@ -139,11 +152,13 @@ export default function MovieCatalog({ onBack }: { onBack: () => void }) {
       return;
     }
 
+    // Firefox Fallback
+    if (!window.showDirectoryPicker) {
+      fileInputRef.current?.click();
+      return;
+    }
+
     try {
-      if (!window.showDirectoryPicker) {
-        setError("Il tuo browser non supporta la File System Access API. Usa Chrome o Edge su PC.");
-        return;
-      }
       const dirHandle = await window.showDirectoryPicker({ mode: 'read' });
       setLoading(true);
       setError('');
@@ -172,10 +187,59 @@ export default function MovieCatalog({ onBack }: { onBack: () => void }) {
     }
   };
 
-  const filteredMovies = movies.filter(m => 
-    m.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    (m.genre && m.genre.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
+  const handleManualLibrarySelection = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const fileList = e.target.files;
+    if (!fileList || fileList.length === 0) return;
+
+    setLoading(true);
+    setError('');
+    
+    const scannedMovies: Movie[] = [];
+    for (let i = 0; i < fileList.length; i++) {
+        const file = fileList[i];
+        const name = file.name;
+        const lowerName = name.toLowerCase();
+        
+        const hasVideoExt = VIDEO_EXTENSIONS.some(ext => lowerName.endsWith(ext));
+        const looksLikeMovie = DIRTY_PATTERN.test(lowerName) && !lowerName.endsWith('.txt') && !lowerName.endsWith('.nfo') && !lowerName.endsWith('.jpg') && !lowerName.endsWith('.srt');
+
+        if (hasVideoExt || looksLikeMovie) {
+            const lastDotIndex = name.lastIndexOf('.');
+            const baseName = lastDotIndex !== -1 ? name.substring(0, lastDotIndex) : name;
+            
+            scannedMovies.push({
+                id: (file as any).webkitRelativePath || name,
+                title: baseName,
+                videoFileName: name,
+                videoFileHandle: null, // No handle in manual mode
+                lastModified: file.lastModified
+            });
+        }
+    }
+
+    // Sort alphabetically
+    scannedMovies.sort((a, b) => a.title.localeCompare(b.title));
+    setMovies(scannedMovies);
+
+    // Get recently added (top 10)
+    const recent = [...scannedMovies].sort((a, b) => b.lastModified - a.lastModified).slice(0, 10);
+    setRecentMovies(recent);
+    
+    setLoading(false);
+
+    if (scannedMovies.length === 0) {
+        setError("Nessun file video trovato nella cartella selezionata.");
+    }
+  };
+
+  const filteredMovies = (movies || []).filter(m => {
+    if (!m || !m.title) return false;
+    const search = (searchQuery || "").toLowerCase();
+    const titleMatch = m.title.toLowerCase().includes(search);
+    const genreMatch = m.genre ? m.genre.toLowerCase().includes(search) : false;
+    const directorMatch = m.director ? m.director.toLowerCase().includes(search) : false;
+    return titleMatch || genreMatch || directorMatch;
+  });
 
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-50 font-sans flex flex-col">
@@ -207,6 +271,16 @@ export default function MovieCatalog({ onBack }: { onBack: () => void }) {
               className="bg-neutral-900 border border-neutral-800 rounded-full pl-10 pr-4 py-2 text-sm focus:border-purple-500 outline-none w-64 transition-all focus:w-80"
             />
           </div>
+          <input
+            type="file"
+            // @ts-ignore
+            webkitdirectory="true"
+            directory="true"
+            multiple
+            className="hidden"
+            ref={fileInputRef}
+            onChange={handleManualLibrarySelection}
+          />
           <button 
             onClick={handleLoadLibrary}
             className="flex items-center gap-2 bg-purple-600 hover:bg-purple-500 text-white px-5 py-2 rounded-full font-medium transition-colors shadow-[0_0_15px_rgba(147,51,234,0.3)]"
@@ -257,7 +331,7 @@ export default function MovieCatalog({ onBack }: { onBack: () => void }) {
         ) : (
           <div className="space-y-12">
             {/* Recently Added Section */}
-            {recentMovies.length > 0 && !searchQuery && (
+            {(recentMovies || []).length > 0 && !searchQuery && (
               <section>
                 <div className="flex items-center gap-3 mb-6">
                   <div className="p-2 bg-purple-600/20 rounded-lg">
@@ -266,40 +340,43 @@ export default function MovieCatalog({ onBack }: { onBack: () => void }) {
                   <h2 className="text-xl font-bold text-white">Aggiunti di Recente</h2>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                  {recentMovies.map((movie) => (
-                    <motion.div 
-                      key={`recent-${movie.id}`}
-                      whileHover={{ y: -5 }}
-                      onClick={() => setSelectedMovie(movie)}
-                      className="group cursor-pointer bg-neutral-900/40 border border-neutral-800/50 rounded-2xl p-3 hover:bg-neutral-800/40 transition-all flex gap-4"
-                    >
-                      <div className="relative w-24 aspect-[2/3] rounded-xl overflow-hidden bg-neutral-900 border border-neutral-800 shadow-lg flex-shrink-0">
-                        {movie.posterUrl ? (
-                          <img src={movie.posterUrl} alt={movie.title} className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-neutral-700">
-                            <Film className="w-8 h-8" />
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0 py-1 flex flex-col justify-between">
-                        <div>
-                          <h3 className="font-bold text-sm text-neutral-200 truncate group-hover:text-purple-400 transition-colors">{movie.title}</h3>
-                          <div className="flex items-center gap-2 mt-1">
-                            <span className="text-[10px] text-neutral-500 font-medium">{movie.year || 'N/A'}</span>
-                            {movie.genre && (
-                              <span className="text-[10px] text-purple-400/80 font-bold truncate max-w-[100px]">{movie.genre.split(',')[0]}</span>
-                            )}
-                          </div>
+                  {(recentMovies || []).map((movie) => {
+                    if (!movie) return null;
+                    return (
+                      <motion.div 
+                        key={`recent-${movie.id || Math.random()}`}
+                        whileHover={{ y: -5 }}
+                        onClick={() => setSelectedMovie(movie)}
+                        className="group cursor-pointer bg-neutral-900/40 border border-neutral-800/50 rounded-2xl p-3 hover:bg-neutral-800/40 transition-all flex gap-4"
+                      >
+                        <div className="relative w-24 aspect-[2/3] rounded-xl overflow-hidden bg-neutral-900 border border-neutral-800 shadow-lg flex-shrink-0">
+                          {movie.posterUrl ? (
+                            <img src={movie.posterUrl} alt={movie.title || 'Movie'} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-neutral-700">
+                              <Film className="w-8 h-8" />
+                            </div>
+                          )}
                         </div>
-                        {movie.director && (
-                          <div className="text-[10px] text-neutral-500 truncate">
-                            <span className="font-bold uppercase tracking-tighter text-neutral-600 mr-1">Dir:</span> {movie.director}
+                        <div className="flex-1 min-w-0 py-1 flex flex-col justify-between">
+                          <div>
+                            <h3 className="font-bold text-sm text-neutral-200 truncate group-hover:text-purple-400 transition-colors">{movie.title || 'Untitled'}</h3>
+                            <div className="flex items-center gap-2 mt-1">
+                              <span className="text-[10px] text-neutral-500 font-medium">{movie.year || 'N/A'}</span>
+                              {movie.genre && (
+                                <span className="text-[10px] text-purple-400/80 font-bold truncate max-w-[100px]">{movie.genre.split(',')[0]}</span>
+                              )}
+                            </div>
                           </div>
-                        )}
-                      </div>
-                    </motion.div>
-                  ))}
+                          {movie.director && (
+                            <div className="text-[10px] text-neutral-500 truncate">
+                              <span className="font-bold uppercase tracking-tighter text-neutral-600 mr-1">Dir:</span> {movie.director}
+                            </div>
+                          )}
+                        </div>
+                      </motion.div>
+                    );
+                  })}
                 </div>
               </section>
             )}
@@ -315,50 +392,53 @@ export default function MovieCatalog({ onBack }: { onBack: () => void }) {
                 </h2>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
-                {filteredMovies.map((movie) => (
-                  <motion.div 
-                    key={movie.id}
-                    layoutId={`movie-${movie.id}`}
-                    onClick={() => setSelectedMovie(movie)}
-                    className="group cursor-pointer bg-neutral-900/30 border border-neutral-800/40 rounded-2xl p-3 hover:bg-neutral-800/40 transition-all flex flex-col gap-3"
-                  >
-                    <div className="relative aspect-[16/9] rounded-xl overflow-hidden bg-neutral-900 border border-neutral-800 shadow-lg">
-                      {movie.posterUrl ? (
-                        <img src={movie.posterUrl} alt={movie.title} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-neutral-700">
-                          <Film className="w-10 h-10" />
+                {(filteredMovies || []).map((movie) => {
+                  if (!movie) return null;
+                  return (
+                    <motion.div 
+                      key={movie.id || `movie-${Math.random()}`}
+                      layoutId={`movie-${movie.id}`}
+                      onClick={() => setSelectedMovie(movie)}
+                      className="group cursor-pointer bg-neutral-900/30 border border-neutral-800/40 rounded-2xl p-3 hover:bg-neutral-800/40 transition-all flex flex-col gap-3"
+                    >
+                      <div className="relative aspect-[16/9] rounded-xl overflow-hidden bg-neutral-900 border border-neutral-800 shadow-lg">
+                        {movie.posterUrl ? (
+                          <img src={movie.posterUrl} alt={movie.title || 'Movie'} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-neutral-700">
+                            <Film className="w-10 h-10" />
+                          </div>
+                        )}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end p-3">
+                          <p className="text-[10px] text-neutral-300 line-clamp-2 leading-tight italic">
+                            {movie.plot || 'Nessuna trama disponibile.'}
+                          </p>
                         </div>
-                      )}
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end p-3">
-                        <p className="text-[10px] text-neutral-300 line-clamp-2 leading-tight italic">
-                          {movie.plot || 'Nessuna trama disponibile.'}
-                        </p>
                       </div>
-                    </div>
-                    <div className="space-y-2">
-                      <div className="flex justify-between items-start gap-2">
-                        <h3 className="font-bold text-sm text-neutral-100 truncate group-hover:text-purple-400 transition-colors flex-1">{movie.title}</h3>
-                        <span className="text-[10px] font-bold text-neutral-500 bg-neutral-800 px-1.5 py-0.5 rounded">{movie.year || 'N/A'}</span>
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-start gap-2">
+                          <h3 className="font-bold text-sm text-neutral-100 truncate group-hover:text-purple-400 transition-colors flex-1">{movie.title || 'Untitled'}</h3>
+                          <span className="text-[10px] font-bold text-neutral-500 bg-neutral-800 px-1.5 py-0.5 rounded">{movie.year || 'N/A'}</span>
+                        </div>
+                        
+                        <div className="flex flex-col gap-1">
+                          {movie.genre && (
+                            <div className="flex items-center gap-1.5">
+                              <Film className="w-3 h-3 text-purple-500/70" />
+                              <span className="text-[10px] text-neutral-400 truncate">{movie.genre}</span>
+                            </div>
+                          )}
+                          {movie.director && (
+                            <div className="flex items-center gap-1.5">
+                              <Star className="w-3 h-3 text-yellow-500/70" />
+                              <span className="text-[10px] text-neutral-400 truncate">Dir: {movie.director}</span>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      
-                      <div className="flex flex-col gap-1">
-                        {movie.genre && (
-                          <div className="flex items-center gap-1.5">
-                            <Film className="w-3 h-3 text-purple-500/70" />
-                            <span className="text-[10px] text-neutral-400 truncate">{movie.genre}</span>
-                          </div>
-                        )}
-                        {movie.director && (
-                          <div className="flex items-center gap-1.5">
-                            <Star className="w-3 h-3 text-yellow-500/70" />
-                            <span className="text-[10px] text-neutral-400 truncate">Dir: {movie.director}</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </motion.div>
-                ))}
+                    </motion.div>
+                  );
+                })}
               </div>
             </section>
           </div>

@@ -11,6 +11,16 @@ declare global {
   }
 }
 
+const VIDEO_EXTENSIONS = [
+  '.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v', 
+  '.ts', '.m2ts', '.vob', '.3gp', '.mpg', '.mpeg', '.divx', '.xvid', '.asf', '.rmvb',
+  '.iso', '.m2t', '.m1v', '.m2v', '.mp2', '.mpeg4', '.div', '.ogm', '.ogv', '.qt',
+  '.rm', '.m4p', '.m4b', '.m4r', '.f4v', '.f4p', '.f4a', '.f4b',
+  '.3g2', '.mod', '.tod', '.vro', '.dvr-ms', '.amv', '.mjp', '.mjpeg'
+];
+
+const DIRTY_PATTERN = /(1080p|720p|2160p|4k|bluray|bdrip|brrip|dvdrip|web-dl|webrip|x264|h264|hevc|x265|ita|eng|dts|ac3|aac|multisub|remux|xvid|divx|h265|h.264|h.265|10bit|hdr|dovi|vision|atvp|amzn|netflix|nf|dnp|dsnp|cyber|iamable|juggs|rarbg|ettv|tpx|tgx|psa|qxr|yify|yts|evans|galaxy|mkv|mp4|avi)/i;
+
 interface MetadataEditorProps {
   onBack: () => void;
 }
@@ -83,10 +93,9 @@ export default function MetadataEditor({ onBack }: MetadataEditorProps) {
   }, [saveStatus]);
 
   const scanDirectoryForVideos = async (dirHandle: any, path = '', depth = 0): Promise<{name: string, handle: any, parentHandle: any, path: string}[]> => {
-    if (depth > 4) return []; // Limite di profondità per evitare blocchi
+    if (depth > 12) return []; // Profondità aumentata per librerie complesse
     let foundFiles: {name: string, handle: any, parentHandle: any, path: string}[] = [];
-    const VIDEO_EXTENSIONS = ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v'];
-    const IGNORED_DIRS = ['.git', '.trashes', 'system volume information', 'node_modules', '$recycle.bin'];
+    const IGNORED_DIRS = ['.git', '.trashes', 'system volume information', 'node_modules', '$recycle.bin', 'metadata', 'backups'];
     let iterations = 0;
     
     try {
@@ -102,7 +111,10 @@ export default function MetadataEditor({ onBack }: MetadataEditorProps) {
           foundFiles = foundFiles.concat(subFiles);
         } else if (entry.kind === 'file') {
           const lowerName = entry.name.toLowerCase();
-          if (VIDEO_EXTENSIONS.some(ext => lowerName.endsWith(ext))) {
+          const hasVideoExt = VIDEO_EXTENSIONS.some(ext => lowerName.endsWith(ext));
+          const looksLikeMovie = DIRTY_PATTERN.test(lowerName) && !lowerName.endsWith('.txt') && !lowerName.endsWith('.nfo') && !lowerName.endsWith('.jpg') && !lowerName.endsWith('.srt');
+
+          if (hasVideoExt || looksLikeMovie) {
             foundFiles.push({ name: entry.name, handle: entry, parentHandle: dirHandle, path: path + entry.name });
           }
         }
@@ -195,11 +207,13 @@ export default function MetadataEditor({ onBack }: MetadataEditorProps) {
       return;
     }
 
+    // Firefox Fallback
+    if (!window.showDirectoryPicker) {
+      fileInputRef.current?.click();
+      return;
+    }
+
     try {
-      if (!window.showDirectoryPicker) {
-        setError("Il tuo browser non supporta la File System Access API. Usa Chrome o Edge su PC.");
-        return;
-      }
       const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
       setDirHandle(handle);
       
@@ -224,6 +238,42 @@ export default function MetadataEditor({ onBack }: MetadataEditorProps) {
       } else if (error.name !== 'AbortError') {
         setError(`Errore durante la selezione: ${error.message || 'Impossibile accedere alla cartella'}. Assicurati di non selezionare un'intera unità di sistema (es. C:).`);
       }
+    }
+  };
+
+  const handleManualMetadataSelection = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const fileList = e.target.files;
+    if (!fileList || fileList.length === 0) return;
+
+    setLoading(true);
+    setError('');
+    
+    const foundFiles: {name: string, handle: any, parentHandle: any, path: string}[] = [];
+    for (let i = 0; i < fileList.length; i++) {
+        const file = fileList[i];
+        const name = file.name;
+        const lowerName = name.toLowerCase();
+        
+        const hasVideoExt = VIDEO_EXTENSIONS.some(ext => lowerName.endsWith(ext));
+        const looksLikeMovie = DIRTY_PATTERN.test(lowerName) && !lowerName.endsWith('.txt') && !lowerName.endsWith('.nfo') && !lowerName.endsWith('.jpg') && !lowerName.endsWith('.srt');
+
+        if (hasVideoExt || looksLikeMovie) {
+            foundFiles.push({ 
+                name: file.name, 
+                handle: null, 
+                parentHandle: null, 
+                path: (file as any).webkitRelativePath || name 
+            });
+        }
+    }
+
+    setVideoFiles(foundFiles);
+    setLoading(false);
+    
+    if (foundFiles.length > 0) {
+        handleVideoSelect(foundFiles[0]);
+    } else {
+        setError("Nessun file video trovato in questa cartella.");
     }
   };
 
@@ -606,6 +656,16 @@ export default function MetadataEditor({ onBack }: MetadataEditorProps) {
             <Logo className="w-full h-full drop-shadow-[0_0_12px_rgba(255,0,128,0.25)]" />
           </div>
           <h1 className="text-lg font-bold text-white">Edit Media Metadata</h1>
+          <input
+            type="file"
+            // @ts-ignore
+            webkitdirectory="true"
+            directory="true"
+            multiple
+            className="hidden"
+            ref={fileInputRef}
+            onChange={handleManualMetadataSelection}
+          />
         </div>
         <button onClick={onBack} className="p-1.5 hover:bg-neutral-800 rounded-lg text-neutral-400 transition-colors">
           <X className="w-5 h-5" />
